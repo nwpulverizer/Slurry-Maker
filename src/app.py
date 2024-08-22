@@ -40,18 +40,24 @@ bware = Beforeware(before, skip=["/favicon\\.ico", "/static/.*", ".*\\.css", "/l
 script = """
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM fully loaded and parsed');
-    
+
+    function updateMaterialForm(materialType, customDivId, premadeDivId, hiddenInputId) {
+        if (materialType === 'custom') {
+            document.getElementById(customDivId).style.display = 'block';
+            document.getElementById(premadeDivId).style.display = 'none';
+            document.getElementById(hiddenInputId).value = 'custom';
+        } else {
+            document.getElementById(customDivId).style.display = 'none';
+            document.getElementById(premadeDivId).style.display = 'block';
+            document.getElementById(hiddenInputId).value = 'premade';
+        }
+    }
+
     document.querySelectorAll('input[name="material1_type"]').forEach((elem) => {
         console.log('Attaching event listener to material1_type radio buttons');
         elem.addEventListener('change', function() {
             console.log('material1_type changed to', this.value);
-            if (this.value === 'custom') {
-                document.getElementById('material1_custom').style.display = 'block';
-                document.getElementById('material1_premade').style.display = 'none';
-            } else {
-                document.getElementById('material1_custom').style.display = 'none';
-                document.getElementById('material1_premade').style.display = 'block';
-            }
+            updateMaterialForm(this.value, 'material1_custom', 'material1_premade', 'material1_selected');
         });
     });
 
@@ -59,15 +65,15 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('Attaching event listener to material2_type radio buttons');
         elem.addEventListener('change', function() {
             console.log('material2_type changed to', this.value);
-            if (this.value === 'custom') {
-                document.getElementById('material2_custom').style.display = 'block';
-                document.getElementById('material2_premade').style.display = 'none';
-            } else {
-                document.getElementById('material2_custom').style.display = 'none';
-                document.getElementById('material2_premade').style.display = 'block';
-            }
+            updateMaterialForm(this.value, 'material2_custom', 'material2_premade', 'material2_selected');
         });
     });
+
+    // Check initial state of radio buttons
+    const material1Type = document.querySelector('input[name="material1_type"]:checked').value;
+    updateMaterialForm(material1Type, 'material1_custom', 'material1_premade', 'material1_selected');
+    const material2Type = document.querySelector('input[name="material2_type"]:checked').value;
+    updateMaterialForm(material2Type, 'material2_custom', 'material2_premade', 'material2_selected');
 
     document.getElementById('material1_select').addEventListener('change', function() {
         console.log('material1_select changed to', this.value);
@@ -221,6 +227,7 @@ def get(auth):
                 )
             ),
             id="material1_custom",
+            style="display: none;",  # Hide custom material form by default
         ),
         Div(
             Group(
@@ -233,8 +240,13 @@ def get(auth):
             ),
             Div(id="material1_info"),
             id="material1_premade",
-            style="display: none;",
         ),
+        Input(
+            type="hidden",
+            id="material1_selected",
+            name="material1_selected",
+            value="premade",
+        ),  # Hidden input for selected material type
         H2("Material 2"),
         Group(
             Input(
@@ -293,6 +305,7 @@ def get(auth):
                 )
             ),
             id="material2_custom",
+            style="display: none;",  # Hide custom material form by default
         ),
         Div(
             Group(
@@ -305,9 +318,17 @@ def get(auth):
             ),
             Div(id="material2_info"),
             id="material2_premade",
-            style="display: none;",
         ),
+        Input(
+            type="hidden",
+            id="material2_selected",
+            name="material2_selected",
+            value="premade",
+        ),  # Hidden input for selected material type
+        Hr(),  # Add a horizontal rule for visual separation
+        H2("Calculation Parameters"),
         Group(
+            Label("Volume fraction of Material 1", for_="volpercent"),
             Input(
                 id="volpercent",
                 name="volpercent",
@@ -315,7 +336,29 @@ def get(auth):
                 type="number",
                 value=0.4,
                 step=0.01,
-            )
+            ),
+        ),
+        Group(
+            Label("Minimum Up to fit", for_="upmin"),
+            Input(
+                id="upmin",
+                name="upmin",
+                placeholder="Upmin",
+                type="number",
+                value=0,
+                step=0.01,
+            ),
+        ),
+        Group(
+            Label("Maximum Up to fit", for_="upmax"),
+            Input(
+                id="upmax",
+                name="upmax",
+                placeholder="Upmax",
+                type="number",
+                value=6,
+                step=0.01,
+            ),
         ),
         Button("Calculate", type="submit"),
         action="/calculate",
@@ -331,18 +374,20 @@ def get(auth):
 @dataclass
 class CalculationInput:
     material1_type: str
-    name1: str
-    rho0_1: float
-    C0_1: float
-    S_1: float
-    material1_select: str
     material2_type: str
-    name2: str
-    rho0_2: float
-    C0_2: float
-    S_2: float
-    material2_select: str
-    volpercent: float
+    name1: str = ""
+    rho0_1: float = 0.0
+    C0_1: float = 0.0
+    S_1: float = 0.0
+    material1_select: str = ""
+    name2: str = ""
+    rho0_2: float = 0.0
+    C0_2: float = 0.0
+    S_2: float = 0.0
+    material2_select: str = ""
+    volpercent: float = 0.0
+    upmin: float = 0.0
+    upmax: float = 6.0
 
 
 @rt("/calculate")
@@ -379,7 +424,9 @@ def post(calc_input: CalculationInput):
             S=calc_input.S_2,
         )
 
-    plot_html = plot_mixture(material1, material2, calc_input.volpercent)
+    plot_html = plot_mixture(
+        material1, material2, calc_input.volpercent, calc_input.upmin, calc_input.upmax
+    )
     return NotStr(plot_html)
 
 
