@@ -132,7 +132,7 @@ def get():
         action="/login",
         method="post",
     )
-    return Titled("Login", frm)
+    return Titled("Login", frm, H3("First time login will create your account. Do not reuse passwords from other websites on this website."))
 
 
 @rt("/login")
@@ -193,11 +193,13 @@ def get(auth):
         ),
         Div(
             Group(
+                Label("Name",for_="name1", ),
                 Input(
                     id="name1", name="name1", placeholder="Material 1 Name", value="MgO"
                 )
             ),
             Group(
+                Label("density",for_="rho0_1", ),
                 Input(
                     id="rho0_1",
                     name="rho0_1",
@@ -205,9 +207,10 @@ def get(auth):
                     type="number",
                     value=3.583,
                     step=1e-05,
-                )
+                ),
             ),
             Group(
+                Label("C0",for_="C0_1"),
                 Input(
                     id="C0_1",
                     name="C0_1",
@@ -218,6 +221,7 @@ def get(auth):
                 )
             ),
             Group(
+                Label("S",for_="S_1"),
                 Input(
                     id="S_1",
                     name="S_1",
@@ -269,6 +273,7 @@ def get(auth):
         ),
         Div(
             Group(
+                Label("Name", for_="name2"),
                 Input(
                     id="name2",
                     name="name2",
@@ -277,6 +282,7 @@ def get(auth):
                 )
             ),
             Group(
+                Label("density",for_="rho0_2"),
                 Input(
                     id="rho0_2",
                     name="rho0_2",
@@ -287,6 +293,7 @@ def get(auth):
                 )
             ),
             Group(
+                Label("C0",for_="C0_2"),
                 Input(
                     id="C0_2",
                     name="C0_2",
@@ -297,6 +304,7 @@ def get(auth):
                 )
             ),
             Group(
+                Label("S",for_="S_2"),
                 Input(
                     id="S_2",
                     name="S_2",
@@ -369,8 +377,9 @@ def get(auth):
         hx_target="#plot-container",
         hx_swap="innerHTML",
     )
+    warning = H4("Please give this a few seconds to calculate")
     plot_container = Div(id="plot-container")
-    return Titled("Calculation App", top, form, plot_container)
+    return Titled("Calculation App", top, form,warning,  plot_container)
 
 
 @dataclass
@@ -480,4 +489,3 @@ def get(name: str):
     return JSONResponse(material_dict)
 
 
-serve()
