@@ -179,6 +179,7 @@ def get(auth):
                 id="material1_custom_radio",
                 name="material1_type",
                 value="custom",
+                style="border-radius: 0;"
             ),
             Label("Custom Material", for_="material1_custom_radio"),
             Input(
@@ -258,6 +259,7 @@ def get(auth):
                 id="material2_custom_radio",
                 name="material2_type",
                 value="custom",
+                style="border-radius: 0;"
             ),
             Label("Custom Material", for_="material2_custom_radio"),
             Input(
