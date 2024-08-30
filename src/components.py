@@ -145,3 +145,48 @@ def plot_mixture(material1, material2, volpercent, upmin=0, upmax=6):
         legend=dict(font=dict(size=14)),
     )
     return fig.to_html(full_html=False) + fig2.to_html(full_html=False)
+def make_custom_mat(num:int, **kwargs):
+    numstr = str(num)
+
+    mat =    Div(
+            Group(
+                Label("Name",for_="name"+numstr, ),
+                Input(
+                    id="name"+numstr, name="name"+numstr, placeholder="Material  "+numstr+"Name", 
+                )
+            ),
+            Group(
+                Label("density",for_="rho0_"+numstr, ),
+                Input(
+                    id="rho0_"+numstr,
+                    name="rho0_"+numstr,
+                    placeholder="Density "+numstr,
+                    type="number",
+                    step=1e-05,
+                ),
+            ),
+            Group(
+                Label("C0",for_="C0_"+numstr),
+                Input(
+                    id="C0_"+numstr,
+                    name="C0_"+numstr,
+                    placeholder="C0 "+numstr,
+                    type="number",
+                    step=1e-05,
+                )
+            ),
+            Group(
+                Label("S",for_="S_"+numstr),
+                Input(
+                    id="S_"+numstr,
+                    name="S_"+numstr,
+                    placeholder="S "+numstr,
+                    type="number",
+                    step=1e-05,
+                )
+            ),
+            id="material_"+numstr"+"custom",
+            style="display: none;",  # Hide custom material form by default
+        )
+    return mat
+
