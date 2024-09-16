@@ -1,9 +1,17 @@
+<<<<<<< Updated upstream
 # pyright:basic
+=======
+# pyright: basic
+>>>>>>> Stashed changes
 import numpy as np
 from typing import List
 from dataclasses import dataclass
 import plotly.graph_objs as go
+<<<<<<< Updated upstream
 from fasthtml.common import Div, Group, Label, Input, Br
+=======
+import numpy.typing as npt
+>>>>>>> Stashed changes
 
 
 @dataclass
@@ -63,6 +71,54 @@ def generate_mixed_hugoniot(
     mfracs = [x_mat1, 1 - x_mat1]
     mixed = MixedHugoniotEOS(name, rho_mix, regression[1], regression[0], names, vols)
     mixed.mfracs = mfracs
+    return mixed
+
+
+def generate_mixed_hugoniot_many(
+    name: str,
+    material_list: List[Tuple[HugoniotEOS, float]],
+    Up: npt.ArrayLike = np.linspace(0, 8, 1000),
+) -> MixedHugoniotEOS:
+    """
+    Generates a mixed Hugoniot for a given list of materials and their volume percent
+
+    :param name: name of new mixture
+    :param material_list: list of tuples containing the material and it's respective volume fraction [(mat1, vx1), (mat2, vx2)]
+    :param Up: array of particle velocities to solve for. This will be applied to the first material to get a P, after which
+            We will solve for Up at the first materials pressures.
+    :returns: MixedHugonitEOS
+    :raises ValueError: raises if sum of volume percents is not equal to 1
+    """
+    vols = [i[1] for i in material_list]
+    if np.isclose(sum(vols), 1):
+        raise ValueError("Volume fractions must sum to 1")
+    mat1, xv1 = material_list[0]
+    P = mat1.hugoniot_P(Up)
+    Up_list = [Up]
+    masses = []
+    vols = []
+    names = []
+    xvs = []
+    masses.append(mat1.rho0 * xv1)
+    vols.append(masses[0] / mat1.rho0)
+    for mat, xv in material_list[1:]:
+        names.append(mat.name)
+        xvs.append(xv)
+        mass = mat.rho0 * xv
+        vol = mass / mat.rho0
+        masses.append(mass)
+        vols.append(vol)
+        Up_list.append(mat.solve_up(P))
+    rho_mix = sum(masses) / sum(vols)
+    mass_frac = [m / sum(masses) for m in masses]
+    mixed_Up = np.sqrt(sum([up**2 * x for up, x in zip(Up_list, mass_frac)]))
+    mixed_Us = (P[1:]) / (rho_mix * mixed_Up[1:])
+    regression = LR(mixed_Up[1:], mixed_Us)
+
+    mixed = MixedHugoniotEOS(
+        name, rho_mix, regression.intercept, regression.slope, names, xvs
+    )
+    mixed.mfracs = mass_frac
     return mixed
 
 
