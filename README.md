@@ -16,5 +16,6 @@ uvicorn app:app --reload
 
 ```
 The UI should open in a web browser. If not visit 127.0.0.1:8000 in your browser. 
+The materials DB from the hosted versionwill not be loaded. To add your own materials, create an account named admin with a strong password and click the add materials button. 
 ## TODO
 - [ ] Make requirements.txt or similar
