@@ -2,6 +2,7 @@ import numpy as np
 from typing import List
 from dataclasses import dataclass
 import plotly.graph_objs as go
+from fasthtml.common import *
 
 
 @dataclass
@@ -150,13 +151,13 @@ def make_custom_mat(num:int, **kwargs):
 
     mat =    Div(
             Group(
-                Label("Name",for_="name"+numstr, ),
+                Label("Name",for_="name"+numstr,style="margin-right: 1em" ),
                 Input(
-                    id="name"+numstr, name="name"+numstr, placeholder="Material  "+numstr+"Name", 
+                    id="name"+numstr, name="name"+numstr, placeholder="Material  "+numstr+" Name", 
                 )
             ),
             Group(
-                Label("density",for_="rho0_"+numstr, ),
+            Label("density",for_="rho0_"+numstr,style="margin-right: 1em" ),
                 Input(
                     id="rho0_"+numstr,
                     name="rho0_"+numstr,
@@ -166,7 +167,7 @@ def make_custom_mat(num:int, **kwargs):
                 ),
             ),
             Group(
-                Label("C0",for_="C0_"+numstr),
+                Label("C0",for_="C0_"+numstr,style="margin-right: 1em" ),
                 Input(
                     id="C0_"+numstr,
                     name="C0_"+numstr,
@@ -176,7 +177,7 @@ def make_custom_mat(num:int, **kwargs):
                 )
             ),
             Group(
-                Label("S",for_="S_"+numstr),
+                Label("S",for_="S_"+numstr,style="margin-right: 1em" ),
                 Input(
                     id="S_"+numstr,
                     name="S_"+numstr,
@@ -184,9 +185,10 @@ def make_custom_mat(num:int, **kwargs):
                     type="number",
                     step=1e-05,
                 )
-            ),
-            id="material_"+numstr"+"custom",
+            ),Br(),
+            id="material"+numstr+"_custom",
             style="display: none;",  # Hide custom material form by default
+            **kwargs
         )
     return mat
 
