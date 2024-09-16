@@ -1,17 +1,11 @@
-<<<<<<< Updated upstream
 # pyright:basic
-=======
 # pyright: basic
->>>>>>> Stashed changes
 import numpy as np
 from typing import List
 from dataclasses import dataclass
 import plotly.graph_objs as go
-<<<<<<< Updated upstream
 from fasthtml.common import Div, Group, Label, Input, Br
-=======
 import numpy.typing as npt
->>>>>>> Stashed changes
 
 
 @dataclass
