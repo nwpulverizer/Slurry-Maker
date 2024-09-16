@@ -12,7 +12,7 @@ plotly
 ```
 Then, in the src directory you can run 
 ```shell
-uvicorn app:app --reload
+uvicorn main:app --reload
 
 ```
 The UI should open in a web browser. If not visit 127.0.0.1:8000 in your browser. 
