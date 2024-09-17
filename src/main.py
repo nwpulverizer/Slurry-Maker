@@ -192,7 +192,7 @@ def get(auth):
         Option("Select from dropdown", value="", disabled=True, selected=True)
     ] + [Option(material.name, value=material.name) for material in materials()]
 
-    form = Form(
+    form = Form(Div(
         H2("Material 1"),
         Group(
             Input(
@@ -211,6 +211,9 @@ def get(auth):
                 checked=True,
             ),
             Label("Premade Material", for_="material1_premade_radio"),
+<<<<<<< Updated upstream
+        ),make_custom_mat(1),
+=======
         ),
         make_custom_mat(1),
         Div(
@@ -249,6 +252,9 @@ def get(auth):
                 checked=True,
             ),
             Label("Premade Material", for_="material2_premade_radio"),
+<<<<<<< Updated upstream
+        ),make_custom_mat(2),
+=======
         ),
         make_custom_mat(2),
         Div(
@@ -268,7 +274,7 @@ def get(auth):
             id="material2_selected",
             name="material2_selected",
             value="premade",
-        ),  # Hidden input for selected material type
+        ),style="display: flex; flex-direction: row; flex-wrap: wrap; "),  # Hidden input for selected material type
         Hr(),  # Add a horizontal rule for visual separation
         H2("Calculation Parameters"),
         Group(
