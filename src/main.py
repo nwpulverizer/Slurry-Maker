@@ -1,15 +1,30 @@
+# noqa: F821
 # pyright: basic
-from fasthtml.common import *
-from hmac import compare_digest
-from typing import List
 from dataclasses import dataclass
-from components import (
-    HugoniotEOS,
-    MixedHugoniotEOS,
-    convert_volfrac_to_massfrac,
-    generate_mixed_hugoniot,
-    plot_mixture,
+from hmac import compare_digest
+
+from fasthtml.common import (
+    H1,
+    H3,
+    Beforeware,
+    Button,
+    Div,
+    FastHTML,
+    Form,
+    Grid,
+    Group,
+    Input,
+    Label,
+    NotFoundError,
+    RedirectResponse,
+    Script,
+    Style,
+    Titled,
+    database,
+    picolink,
 )
+
+from components import HugoniotEOS, make_custom_mat, plot_mixture
 
 # Database setup
 db = database("data/calcapp.db")
@@ -132,7 +147,13 @@ def get():
         action="/login",
         method="post",
     )
-    return Titled("Login", frm, H3("First time login will create your account. Do not reuse passwords from other websites on this website."))
+    return Titled(
+        "Login",
+        frm,
+        H3(
+            "First time login will create your account. Do not reuse passwords from other websites on this website."
+        ),
+    )
 
 
 @rt("/login")
@@ -179,7 +200,7 @@ def get(auth):
                 id="material1_custom_radio",
                 name="material1_type",
                 value="custom",
-                style="border-radius: 0;"
+                style="border-radius: 0;",
             ),
             Label("Custom Material", for_="material1_custom_radio"),
             Input(
@@ -191,49 +212,7 @@ def get(auth):
             ),
             Label("Premade Material", for_="material1_premade_radio"),
         ),
-        Div(
-            Group(
-                Label("Name",for_="name1", ),
-                Input(
-                    id="name1", name="name1", placeholder="Material 1 Name", value="MgO"
-                )
-            ),
-            Group(
-                Label("density",for_="rho0_1", ),
-                Input(
-                    id="rho0_1",
-                    name="rho0_1",
-                    placeholder="Density 1",
-                    type="number",
-                    value=3.583,
-                    step=1e-05,
-                ),
-            ),
-            Group(
-                Label("C0",for_="C0_1"),
-                Input(
-                    id="C0_1",
-                    name="C0_1",
-                    placeholder="C0 1",
-                    type="number",
-                    value=6.661,
-                    step=1e-05,
-                )
-            ),
-            Group(
-                Label("S",for_="S_1"),
-                Input(
-                    id="S_1",
-                    name="S_1",
-                    placeholder="S 1",
-                    type="number",
-                    value=1.36,
-                    step=1e-05,
-                )
-            ),
-            id="material1_custom",
-            style="display: none;",  # Hide custom material form by default
-        ),
+        make_custom_mat(1),
         Div(
             Group(
                 Select(
@@ -259,7 +238,7 @@ def get(auth):
                 id="material2_custom_radio",
                 name="material2_type",
                 value="custom",
-                style="border-radius: 0;"
+                style="border-radius: 0;",
             ),
             Label("Custom Material", for_="material2_custom_radio"),
             Input(
@@ -271,52 +250,7 @@ def get(auth):
             ),
             Label("Premade Material", for_="material2_premade_radio"),
         ),
-        Div(
-            Group(
-                Label("Name", for_="name2"),
-                Input(
-                    id="name2",
-                    name="name2",
-                    placeholder="Material 2 Name",
-                    value="Epoxy",
-                )
-            ),
-            Group(
-                Label("density",for_="rho0_2"),
-                Input(
-                    id="rho0_2",
-                    name="rho0_2",
-                    placeholder="Density 2",
-                    type="number",
-                    value=1.2,
-                    step=1e-05,
-                )
-            ),
-            Group(
-                Label("C0",for_="C0_2"),
-                Input(
-                    id="C0_2",
-                    name="C0_2",
-                    placeholder="C0 2",
-                    type="number",
-                    value=2.9443,
-                    step=1e-05,
-                )
-            ),
-            Group(
-                Label("S",for_="S_2"),
-                Input(
-                    id="S_2",
-                    name="S_2",
-                    placeholder="S 2",
-                    type="number",
-                    value=1.3395,
-                    step=1e-05,
-                )
-            ),
-            id="material2_custom",
-            style="display: none;",  # Hide custom material form by default
-        ),
+        make_custom_mat(2),
         Div(
             Group(
                 Select(
@@ -353,9 +287,8 @@ def get(auth):
             Input(
                 id="upmin",
                 name="upmin",
-                placeholder="Upmin",
                 type="number",
-                value=0,
+                value="0",  # must be a string because 0 is a falsy value in python which is not included
                 step=0.01,
             ),
         ),
@@ -379,7 +312,7 @@ def get(auth):
     )
     warning = H4("Please give this a few seconds to calculate")
     plot_container = Div(id="plot-container")
-    return Titled("Calculation App", top, form,warning,  plot_container)
+    return Titled("Calculation App", top, form, warning, plot_container)
 
 
 @dataclass
@@ -487,5 +420,3 @@ def get(name: str):
         "S": material.S,
     }
     return JSONResponse(material_dict)
-
-

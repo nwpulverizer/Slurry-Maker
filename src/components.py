@@ -1,7 +1,9 @@
+# pyright: basic
 import numpy as np
 from typing import List
 from dataclasses import dataclass
 import plotly.graph_objs as go
+from fasthtml.common import Div, Group, Label, Input
 
 
 @dataclass
@@ -64,7 +66,9 @@ def generate_mixed_hugoniot(
     return mixed
 
 
-def plot_mixture(material1, material2, volpercent, upmin=0, upmax=6):
+def plot_mixture(
+    material1: HugoniotEOS, material2: HugoniotEOS, volpercent: float, upmin=0, upmax=6
+):
     up1 = np.linspace(upmin, upmax, 1000)
     mix = generate_mixed_hugoniot(
         f"vol{str(volpercent) + material1.name + material2.name}",
@@ -145,48 +149,58 @@ def plot_mixture(material1, material2, volpercent, upmin=0, upmax=6):
         legend=dict(font=dict(size=14)),
     )
     return fig.to_html(full_html=False) + fig2.to_html(full_html=False)
-def make_custom_mat(num:int, **kwargs):
+
+
+def make_custom_mat(num: int, **kwargs):
     numstr = str(num)
 
-    mat =    Div(
-            Group(
-                Label("Name",for_="name"+numstr, ),
-                Input(
-                    id="name"+numstr, name="name"+numstr, placeholder="Material  "+numstr+"Name", 
-                )
+    mat = Div(
+        Group(
+            Label(
+                "Name",
+                for_="name" + numstr,
             ),
-            Group(
-                Label("density",for_="rho0_"+numstr, ),
-                Input(
-                    id="rho0_"+numstr,
-                    name="rho0_"+numstr,
-                    placeholder="Density "+numstr,
-                    type="number",
-                    step=1e-05,
-                ),
+            Input(
+                id="name" + numstr,
+                name="name" + numstr,
+                placeholder="Material  " + numstr + "Name",
             ),
-            Group(
-                Label("C0",for_="C0_"+numstr),
-                Input(
-                    id="C0_"+numstr,
-                    name="C0_"+numstr,
-                    placeholder="C0 "+numstr,
-                    type="number",
-                    step=1e-05,
-                )
+        ),
+        Group(
+            Label(
+                "density",
+                for_="rho0_" + numstr,
             ),
-            Group(
-                Label("S",for_="S_"+numstr),
-                Input(
-                    id="S_"+numstr,
-                    name="S_"+numstr,
-                    placeholder="S "+numstr,
-                    type="number",
-                    step=1e-05,
-                )
+            Input(
+                id="rho0_" + numstr,
+                name="rho0_" + numstr,
+                placeholder="Density " + numstr,
+                type="number",
+                step=1e-05,
             ),
-            id="material_"+numstr"+"custom",
-            style="display: none;",  # Hide custom material form by default
-        )
+        ),
+        Group(
+            Label("C0", for_="C0_" + numstr),
+            Input(
+                id="C0_" + numstr,
+                name="C0_" + numstr,
+                placeholder="C0 " + numstr,
+                type="number",
+                step=1e-05,
+            ),
+        ),
+        Group(
+            Label("S", for_="S_" + numstr),
+            Input(
+                id="S_" + numstr,
+                name="S_" + numstr,
+                placeholder="S " + numstr,
+                type="number",
+                step=1e-05,
+            ),
+        ),
+        id="material" + numstr + "_custom",
+        style="display: none;",  # Hide custom material form by default
+        **kwargs,
+    )
     return mat
-
