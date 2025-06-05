@@ -5,7 +5,8 @@ from fasthtml.common import (
     NotFoundError, Grid, H1, A, Label, Group, Select, Option, Article, Hr, H2, H4, Table, Tr, Th, Td, NotStr, Style, Script, picolink,
     Beforeware, # Added Beforeware
     P, # Added P
-    H3 # Added H3
+    H3, # Added H3
+    HtmxResponseHeaders # Added HtmxResponseHeaders
 )
 from hmac import compare_digest
 from dataclasses import dataclass, fields, field
@@ -22,6 +23,7 @@ from starlette.requests import Request
 from starlette.datastructures import FormData
 from starlette.middleware import Middleware
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.responses import Response # Import Response
 import os # Import os for SECRET_KEY
 
 # Database setup
@@ -47,9 +49,14 @@ def _not_found(req, exc):
 
 
 def before(req, sess):
+    print("Before middleware running.") # Added print
+    print(f"Session content in before: {dict(sess)}") # Added print
+    print(f"Request cookies in before: {req.cookies if hasattr(req, 'cookies') else 'No cookies attr'}") # Added print
     auth = req.scope["auth"] = sess.get("auth", None)
     if not auth:
+        print("Auth not found in session, redirecting to login.") # Added print
         return login_redir
+    print(f"Auth found in session: {auth}") # Added print
 
 
 bware = Beforeware(before, skip=["/favicon\\.ico", "/static/.*", ".*\\.css", "/login"])
@@ -188,56 +195,78 @@ rt = app.route # rt is obtained here
 
 @dataclass
 class Login:
-    name: str
-    pwd: str
+    name: str = None
+    pwd: str = None
 
 @rt("/login")
-def get_login(sess): # Kept descriptive name
-    frm = Form(
-        Input(id="name", placeholder="Name"),
-        Input(id="pwd", type="password", placeholder="Password"),
-        Button("login"),
-        action="/login",
-        method="post",
-    )
-    return Titled("Login", frm, H3("First time login will create your account. Do not reuse passwords from other websites on this website."))
-
-@rt("/login")
-def post_login(login: Login, sess): # Kept descriptive name
-    if not login.name or not login.pwd:
-        return login_redir
-
-    try:
-        user_record = users[login.name]
-        stored_pwd = user_record.pwd
-
-        is_identified_hash = False
-        if isinstance(stored_pwd, str) and stored_pwd:
-            try:
-                pwd_context.identify(stored_pwd)
-                is_identified_hash = True
-            except passlib.exc.UnknownHashError: is_identified_hash = False
-            except (ValueError, TypeError): is_identified_hash = False
-        else: is_identified_hash = False
-
-        if is_identified_hash:
-            if pwd_context.verify(login.pwd, stored_pwd):
+def login(request: Request, sess, login: Login = None):
+    if request.method == "GET":
+        frm = Form(
+            Input(id="name", placeholder="Name"),
+            Input(id="pwd", type="password", placeholder="Password"),
+            Button("login"),
+            action="/login",
+            method="post",
+        )
+        return Titled("Login", frm, H3("First time login will create your account. Do not reuse passwords from other websites on this website."))
+    else:
+        print(f"Attempting login for user: {login.name if login else None}")
+        if not login or not login.name or not login.pwd:
+            print("Login failed: Missing name or password.")
+            print(f"Returning: {login_redir}")
+            return login_redir
+        try:
+            user_record = users[login.name]
+            stored_pwd = user_record.pwd
+            print(f"User {login.name} found in DB.")
+            is_identified_hash = False
+            if isinstance(stored_pwd, str) and stored_pwd:
+                try:
+                    pwd_context.identify(stored_pwd)
+                    is_identified_hash = True
+                    print("Stored password identified as hash.")
+                except passlib.exc.UnknownHashError:
+                    is_identified_hash = False
+                    print("Stored password not a recognized hash.")
+                except (ValueError, TypeError):
+                    is_identified_hash = False
+                    print("Error identifying stored password hash type.")
+            else:
+                is_identified_hash = False
+                print("Stored password is not a string or is empty.")
+            if (is_identified_hash and pwd_context.verify(login.pwd, stored_pwd)) or \
+               (not is_identified_hash and compare_digest((stored_pwd if isinstance(stored_pwd, str) else "").encode("utf-8"), login.pwd.encode("utf-8"))):
+                print("Password verification successful.")
                 sess["auth"] = user_record.name
+                print(f"Session auth set for {user_record.name}. Redirecting to /.")
+                print(f"Session after setting auth: {dict(sess)}")
+                import sys
+                sys.stdout.flush()
+                if "HX-Request" in request.headers:
+                    print("HTMX request detected. Returning HX-Location header.")
+                    return HtmxResponseHeaders(location="/")
+                else:
+                    print("Non-HTMX request. Returning RedirectResponse.")
+                    return RedirectResponse("/", status_code=303)
+            else:
+                print("Password verification failed.")
+                print(f"Returning: {login_redir}")
+                return login_redir
+        except NotFoundError:
+            print(f"User {login.name} not found. Creating new user.")
+            pwd_hash = pwd_context.hash(login.pwd)
+            users.insert({"name": login.name, "pwd": pwd_hash})
+            sess["auth"] = login.name
+            print(f"New user {login.name} created and session auth set. Redirecting to /.")
+            print(f"Session after setting auth: {dict(sess)}")
+            import sys
+            sys.stdout.flush()
+            if "HX-Request" in request.headers:
+                print("HTMX request detected. Returning HX-Location header.")
+                return HtmxResponseHeaders(location="/")
+            else:
+                print("Non-HTMX request. Returning RedirectResponse.")
                 return RedirectResponse("/", status_code=303)
-            else: return login_redir
-        else:
-            plain_stored_pwd_for_compare = stored_pwd if isinstance(stored_pwd, str) else ""
-            if compare_digest(plain_stored_pwd_for_compare.encode("utf-8"), login.pwd.encode("utf-8")):
-                new_pwd_hash = pwd_context.hash(login.pwd)
-                users.update({"pwd": new_pwd_hash}, user_record.name)
-                sess["auth"] = user_record.name
-                return RedirectResponse("/", status_code=303)
-            else: return login_redir
-    except NotFoundError:
-        pwd_hash = pwd_context.hash(login.pwd)
-        users.insert({"name": login.name, "pwd": pwd_hash})
-        sess["auth"] = login.name
-        return RedirectResponse("/", status_code=303)
 
 @rt("/logout")
 def get_logout(sess): # Kept descriptive name
@@ -246,12 +275,16 @@ def get_logout(sess): # Kept descriptive name
 
 @rt("/")
 def get_main_page(request: Request): # Kept descriptive name
+    print("Reached get_main_page route.") # Added print statement
     # Explicitly get auth from request scope
     auth = request.scope.get("auth")
+    print(f"Auth value in get_main_page: {auth}") # Added print
     if not auth:
         # This case should ideally be handled by the 'before' middleware redirect,
         # but as a fallback or if middleware is bypassed, redirect here.
+        print("Auth not found in scope, redirecting to login.")
         return login_redir
+    print(f"Auth found in scope: {auth}")
 
     num_materials_str = request.query_params.get('num_materials', '2')
     try:
