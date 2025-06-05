@@ -326,24 +326,26 @@ def plot_mixture_many(original_material_configs: List[Tuple[HugoniotEOS, float]]
         f"{mixed_eos.rho0:.4f}"
     )
     
-    comp_header = [Th("Component"), Th("Vol. Frac (%)")]
+    # --- Fix: Render table headers as strings, not objects ---
+    comp_header = ["Component", "Vol. Frac (%)"]
     if hasattr(mixed_eos, 'mfracs') and mixed_eos.mfracs:
-      comp_header.append(Th("Mass Frac (%)"))
+      comp_header.append("Mass Frac (%)")
 
-    comp_rows = [Tr(comp_header)]
+    comp_rows = [Tr(*[Th(h) for h in comp_header])]
     for i, comp_name in enumerate(mixed_eos.components):
         vfrac_percent = mixed_eos.vfracs[i] * 100
         row_data = [Td(comp_name), Td(f"{vfrac_percent:.2f}")]
         if hasattr(mixed_eos, 'mfracs') and mixed_eos.mfracs and i < len(mixed_eos.mfracs):
             mfrac_percent = mixed_eos.mfracs[i] * 100
             row_data.append(Td(f"{mfrac_percent:.2f}"))
-        elif hasattr(mixed_eos, 'mfracs'): # mfracs exist but maybe not for this component index
+        elif hasattr(mixed_eos, 'mfracs'):
              row_data.append(Td("N/A"))
         comp_rows.append(Tr(*row_data))
-        
     components_table_html = Table(*comp_rows)
 
-    results_div = Div(
+    # Instead of returning a Div (results_div), return only its children (the table and plots)
+    # This ensures HTMX swaps only the contents, not a new Div with the same id
+    return Div(
         H3("Mixture Parameters:"),
         mixed_table_html,
         H3("Component Fractions:"),
@@ -352,5 +354,4 @@ def plot_mixture_many(original_material_configs: List[Tuple[HugoniotEOS, float]]
         NotStr(fig_p_up.to_html(full_html=False, include_plotlyjs='cdn')),
         NotStr(fig_us_up.to_html(full_html=False, include_plotlyjs=False))
     )
-    return results_div
 
