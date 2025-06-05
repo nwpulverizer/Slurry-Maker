@@ -1,8 +1,9 @@
 # pyright: basic
 from fasthtml.common import *
 from hmac import compare_digest
-from typing import List
 from dataclasses import dataclass
+from passlib.context import CryptContext
+import passlib.exc # Ensure this is imported for specific exception types
 from components import (
     HugoniotEOS,
     MixedHugoniotEOS,
@@ -16,11 +17,15 @@ db = database("data/calcapp.db")
 users, materials = db.t.users, db.t.materials
 
 if users not in db.t:
+    # 'pwd' field will store the hash, or initially plain text during migration
     users.create(dict(name=str, pwd=str), pk="name")
 if materials not in db.t:
     materials.create(dict(name=str, rho0=float, C0=float, S=float), pk="name")
 
 User, Material = users.dataclass(), materials.dataclass()
+
+# Password hashing setup
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 login_redir = RedirectResponse("/login", status_code=303)
 
@@ -35,7 +40,7 @@ def before(req, sess):
         return login_redir
 
 
-bware = Beforeware(before, skip=["/favicon\\.ico", "/static/.*", ".*\\.css", "/login"])
+bware = Beforeware(before, skip=["/favicon\\\\.ico", "/static/.*", ".*\\\\.css", "/login"])
 
 script = """
 document.addEventListener('DOMContentLoaded', function() {
@@ -74,38 +79,6 @@ document.addEventListener('DOMContentLoaded', function() {
     updateMaterialForm(material1Type, 'material1_custom', 'material1_premade', 'material1_selected');
     const material2Type = document.querySelector('input[name="material2_type"]:checked').value;
     updateMaterialForm(material2Type, 'material2_custom', 'material2_premade', 'material2_selected');
-
-    document.getElementById('material1_select').addEventListener('change', function() {
-        console.log('material1_select changed to', this.value);
-        fetch(`/get_material?name=${this.value}`)
-            .then(response => response.json())
-            .then(data => {
-                document.getElementById('material1_info').innerHTML = `
-                    <table>
-                        <tr><th>Name</th><td>${data.name}</td></tr>
-                        <tr><th>Density</th><td>${data.rho0}</td></tr>
-                        <tr><th>C0</th><td>${data.C0}</td></tr>
-                        <tr><th>S</th><td>${data.S}</td></tr>
-                    </table>
-                `;
-            });
-    });
-
-    document.getElementById('material2_select').addEventListener('change', function() {
-        console.log('material2_select changed to', this.value);
-        fetch(`/get_material?name=${this.value}`)
-            .then(response => response.json())
-            .then(data => {
-                document.getElementById('material2_info').innerHTML = `
-                    <table>
-                        <tr><th>Name</th><td>${data.name}</td></tr>
-                        <tr><th>Density</th><td>${data.rho0}</td></tr>
-                        <tr><th>C0</th><td>${data.C0}</td></tr>
-                        <tr><th>S</th><td>${data.S}</td></tr>
-                    </table>
-                `;
-            });
-    });
 });
 """
 
@@ -139,14 +112,69 @@ def get():
 def post(login: Login, sess):
     if not login.name or not login.pwd:
         return login_redir
+
     try:
-        u = users[login.name]
+        user_record = users[login.name]
+        stored_pwd = user_record.pwd
+
+        is_identified_hash = False
+        # Check if it's a non-empty string before trying to identify.
+        # Passlib's identify can raise ValueError on empty strings.
+        if isinstance(stored_pwd, str) and stored_pwd: 
+            try:
+                pwd_context.identify(stored_pwd)
+                is_identified_hash = True
+                print(f"DEBUG: User '{login.name}' - Stored password identified as a hash.")
+            except passlib.exc.UnknownHashError:
+                # This is expected if stored_pwd is plain text
+                print(f"DEBUG: User '{login.name}' - Stored password is not a recognized hash (UnknownHashError from identify).")
+                is_identified_hash = False
+            except (ValueError, TypeError) as e_identify:
+                # Handles cases like empty string or other malformed hash for identify()
+                # or if stored_pwd was not a string type suitable for identify.
+                print(f"DEBUG: User '{login.name}' - Error identifying stored password (likely empty, malformed, or wrong type for identify): {type(e_identify).__name__}")
+                is_identified_hash = False
+        else:
+            # Stored_pwd is None, not a string, or empty string. Cannot be an identified hash.
+            print(f"DEBUG: User '{login.name}' - Stored password is None, not a string, or empty. Treating as not a hash.")
+            is_identified_hash = False
+
+        if is_identified_hash:
+            # Stored password was identified as a hash, now verify it
+            if pwd_context.verify(login.pwd, stored_pwd):
+                # Hash verified successfully
+                sess["auth"] = user_record.name
+                return RedirectResponse("/", status_code=303)
+            else:
+                # Hash verification failed (wrong password)
+                return login_redir
+        else:
+            # Stored password is not an identified hash (plain text, None, empty, or unidentifiable).
+            # Attempt plain text comparison for migration.
+            print(f"DEBUG: User '{login.name}' - Attempting plain text comparison for stored password.")
+            
+            # Ensure stored_pwd for comparison is a string, default to empty if None or other non-string type
+            plain_stored_pwd_for_compare = stored_pwd if isinstance(stored_pwd, str) else ""
+            
+            if compare_digest(plain_stored_pwd_for_compare.encode("utf-8"), login.pwd.encode("utf-8")):
+                # Plain text password matches. Migrate to hash.
+                new_pwd_hash = pwd_context.hash(login.pwd)
+                users.update({"pwd": new_pwd_hash}, user_record.name)
+                print(f"DEBUG: User '{login.name}' - Password migrated to hash.")
+                sess["auth"] = user_record.name
+                return RedirectResponse("/", status_code=303)
+            else:
+                # Plain text password does not match.
+                return login_redir
+
     except NotFoundError:
-        u = users.insert(login)
-    if not compare_digest(u.pwd.encode("utf-8"), login.pwd.encode("utf-8")):
-        return login_redir
-    sess["auth"] = u.name
-    return RedirectResponse("/", status_code=303)
+        # New user: hash password and insert.
+        print(f"DEBUG: User '{login.name}' not found. Creating new user.")
+        pwd_hash = pwd_context.hash(login.pwd)
+        # Ensure the 'users.insert' call correctly uses the 'pwd' field for the hash
+        users.insert({"name": login.name, "pwd": pwd_hash}) 
+        sess["auth"] = login.name # Use login.name as user_record is not defined here for a new user
+        return RedirectResponse("/", status_code=303)
 
 
 @app.get("/logout")
@@ -193,13 +221,13 @@ def get(auth):
         ),
         Div(
             Group(
-                Label("Name",for_="name1", ),
+                Label("Name", for_="name1", ),
                 Input(
                     id="name1", name="name1", placeholder="Material 1 Name", value="MgO"
                 )
             ),
             Group(
-                Label("density",for_="rho0_1", ),
+                Label("density", for_="rho0_1", ),
                 Input(
                     id="rho0_1",
                     name="rho0_1",
@@ -210,7 +238,7 @@ def get(auth):
                 ),
             ),
             Group(
-                Label("C0",for_="C0_1"),
+                Label("C0", for_="C0_1"),
                 Input(
                     id="C0_1",
                     name="C0_1",
@@ -221,7 +249,7 @@ def get(auth):
                 )
             ),
             Group(
-                Label("S",for_="S_1"),
+                Label("S", for_="S_1"),
                 Input(
                     id="S_1",
                     name="S_1",
@@ -241,6 +269,9 @@ def get(auth):
                     id="material1_select",
                     name="material1_select",
                     placeholder="Select Material 1",
+                    hx_get="/get_material",
+                    hx_target="#material1_info",
+                    hx_trigger="change"
                 )
             ),
             Div(id="material1_info"),
@@ -282,7 +313,7 @@ def get(auth):
                 )
             ),
             Group(
-                Label("density",for_="rho0_2"),
+                Label("density", for_="rho0_2"),
                 Input(
                     id="rho0_2",
                     name="rho0_2",
@@ -293,7 +324,7 @@ def get(auth):
                 )
             ),
             Group(
-                Label("C0",for_="C0_2"),
+                Label("C0", for_="C0_2"),
                 Input(
                     id="C0_2",
                     name="C0_2",
@@ -304,7 +335,7 @@ def get(auth):
                 )
             ),
             Group(
-                Label("S",for_="S_2"),
+                Label("S", for_="S_2"),
                 Input(
                     id="S_2",
                     name="S_2",
@@ -324,6 +355,9 @@ def get(auth):
                     id="material2_select",
                     name="material2_select",
                     placeholder="Select Material 2",
+                    hx_get="/get_material",
+                    hx_target="#material2_info",
+                    hx_trigger="change"
                 )
             ),
             Div(id="material2_info"),
@@ -379,7 +413,7 @@ def get(auth):
     )
     warning = H4("Please give this a few seconds to calculate")
     plot_container = Div(id="plot-container")
-    return Titled("Calculation App", top, form,warning,  plot_container)
+    return Titled("Calculation App", top, form, warning, plot_container)
 
 
 @dataclass
@@ -478,14 +512,19 @@ def post(material_input: MaterialInput, auth):
 
 
 @rt("/get_material")
-def get(name: str):
-    material = materials[name]
-    material_dict = {
-        "name": material.name,
-        "rho0": material.rho0,
-        "C0": material.C0,
-        "S": material.S,
-    }
-    return JSONResponse(material_dict)
+def get(material1_select: str = None, material2_select: str = None):
+    name_to_fetch = material1_select or material2_select
+    if not name_to_fetch:
+        return P("Please select a material.", style="color:orange;")
+    try:
+        material = materials[name_to_fetch]
+        return Table(
+            Tr(Th("Name"), Td(material.name)),
+            Tr(Th("Density"), Td(material.rho0)),
+            Tr(Th("C0"), Td(material.C0)),
+            Tr(Th("S"), Td(material.S)),
+        )
+    except NotFoundError:
+        return P("Material not found.", style="color:red;")
 
 
