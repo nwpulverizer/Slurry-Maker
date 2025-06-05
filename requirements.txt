@@ -1,6 +1,6 @@
 numpy
 plotly
-fasthtml
+python-fasthtml
 scipy
 ipywidgets
 matplotlib
