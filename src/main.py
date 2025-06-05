@@ -42,6 +42,84 @@ def before(req, sess):
 
 bware = Beforeware(before, skip=["/favicon\\\\.ico", "/static/.*", ".*\\\\.css", "/login"])
 
+def _create_material_form_section(section_id: int, material_options: list, default_custom_values: dict) -> tuple:
+    """Helper function to create the form section for a single material."""
+    custom_radio_id = f"material{section_id}_custom_radio"
+    premade_radio_id = f"material{section_id}_premade_radio"
+    custom_div_id = f"material{section_id}_custom"
+    premade_div_id = f"material{section_id}_premade"
+    selected_hidden_id = f"material{section_id}_selected"
+    select_id = f"material{section_id}_select"
+    info_div_id = f"material{section_id}_info"
+
+    name_id = f"name{section_id}"
+    rho0_id = f"rho0_{section_id}"
+    c0_id = f"C0_{section_id}"
+    s_id = f"S_{section_id}"
+
+    return (
+        H2(f"Material {section_id}"),
+        Group(
+            Input(
+                type="radio",
+                id=custom_radio_id,
+                name=f"material{section_id}_type",
+                value="custom",
+                style="border-radius: 0;"
+            ),
+            Label(f"Custom Material", for_=custom_radio_id),
+            Input(
+                type="radio",
+                id=premade_radio_id,
+                name=f"material{section_id}_type",
+                value="premade",
+                checked=True, # Default to premade
+            ),
+            Label("Premade Material", for_=premade_radio_id),
+        ),
+        Div(
+            Group(
+                Label("Name", for_=name_id),
+                Input(id=name_id, name=name_id, placeholder=f"Material {section_id} Name", value=default_custom_values.get("name", ""))
+            ),
+            Group(
+                Label("Density (g/cc)", for_=rho0_id),
+                Input(id=rho0_id, name=rho0_id, placeholder=f"Density {section_id}", type="number", value=default_custom_values.get("rho0", 0.0), step="any")
+            ),
+            Group(
+                Label("C0 (km/s)", for_=c0_id),
+                Input(id=c0_id, name=c0_id, placeholder=f"C0 {section_id}", type="number", value=default_custom_values.get("C0", 0.0), step="any")
+            ),
+            Group(
+                Label("S (dimensionless)", for_=s_id),
+                Input(id=s_id, name=s_id, placeholder=f"S {section_id}", type="number", value=default_custom_values.get("S", 0.0), step="any")
+            ),
+            id=custom_div_id,
+            style="display: none;",  # Hide custom material form by default
+        ),
+        Div(
+            Group(
+                Select(
+                    *material_options,
+                    id=select_id,
+                    name=select_id, # Name should match the expected query param for /get_material
+                    placeholder=f"Select Material {section_id}",
+                    hx_get="/get_material",
+                    hx_target=f"#{info_div_id}",
+                    hx_trigger="change"
+                )
+            ),
+            Div(id=info_div_id),
+            id=premade_div_id,
+        ),
+        Input(
+            type="hidden",
+            id=selected_hidden_id,
+            name=f"material{section_id}_selected", # This name is used in CalculationInput
+            value="premade",
+        )
+    )
+
 script = """
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM fully loaded and parsed');
@@ -118,62 +196,37 @@ def post(login: Login, sess):
         stored_pwd = user_record.pwd
 
         is_identified_hash = False
-        # Check if it's a non-empty string before trying to identify.
-        # Passlib's identify can raise ValueError on empty strings.
-        if isinstance(stored_pwd, str) and stored_pwd: 
+        if isinstance(stored_pwd, str) and stored_pwd:
             try:
                 pwd_context.identify(stored_pwd)
                 is_identified_hash = True
-                print(f"DEBUG: User '{login.name}' - Stored password identified as a hash.")
             except passlib.exc.UnknownHashError:
-                # This is expected if stored_pwd is plain text
-                print(f"DEBUG: User '{login.name}' - Stored password is not a recognized hash (UnknownHashError from identify).")
                 is_identified_hash = False
-            except (ValueError, TypeError) as e_identify:
-                # Handles cases like empty string or other malformed hash for identify()
-                # or if stored_pwd was not a string type suitable for identify.
-                print(f"DEBUG: User '{login.name}' - Error identifying stored password (likely empty, malformed, or wrong type for identify): {type(e_identify).__name__}")
+            except (ValueError, TypeError):
                 is_identified_hash = False
         else:
-            # Stored_pwd is None, not a string, or empty string. Cannot be an identified hash.
-            print(f"DEBUG: User '{login.name}' - Stored password is None, not a string, or empty. Treating as not a hash.")
             is_identified_hash = False
 
         if is_identified_hash:
-            # Stored password was identified as a hash, now verify it
             if pwd_context.verify(login.pwd, stored_pwd):
-                # Hash verified successfully
                 sess["auth"] = user_record.name
                 return RedirectResponse("/", status_code=303)
             else:
-                # Hash verification failed (wrong password)
                 return login_redir
         else:
-            # Stored password is not an identified hash (plain text, None, empty, or unidentifiable).
-            # Attempt plain text comparison for migration.
-            print(f"DEBUG: User '{login.name}' - Attempting plain text comparison for stored password.")
-            
-            # Ensure stored_pwd for comparison is a string, default to empty if None or other non-string type
             plain_stored_pwd_for_compare = stored_pwd if isinstance(stored_pwd, str) else ""
-            
             if compare_digest(plain_stored_pwd_for_compare.encode("utf-8"), login.pwd.encode("utf-8")):
-                # Plain text password matches. Migrate to hash.
                 new_pwd_hash = pwd_context.hash(login.pwd)
                 users.update({"pwd": new_pwd_hash}, user_record.name)
-                print(f"DEBUG: User '{login.name}' - Password migrated to hash.")
                 sess["auth"] = user_record.name
                 return RedirectResponse("/", status_code=303)
             else:
-                # Plain text password does not match.
                 return login_redir
 
     except NotFoundError:
-        # New user: hash password and insert.
-        print(f"DEBUG: User '{login.name}' not found. Creating new user.")
         pwd_hash = pwd_context.hash(login.pwd)
-        # Ensure the 'users.insert' call correctly uses the 'pwd' field for the hash
-        users.insert({"name": login.name, "pwd": pwd_hash}) 
-        sess["auth"] = login.name # Use login.name as user_record is not defined here for a new user
+        users.insert({"name": login.name, "pwd": pwd_hash})
+        sess["auth"] = login.name
         return RedirectResponse("/", status_code=303)
 
 
@@ -200,175 +253,8 @@ def get(auth):
     ] + [Option(material.name, value=material.name) for material in materials()]
 
     form = Form(
-        H2("Material 1"),
-        Group(
-            Input(
-                type="radio",
-                id="material1_custom_radio",
-                name="material1_type",
-                value="custom",
-                style="border-radius: 0;"
-            ),
-            Label("Custom Material", for_="material1_custom_radio"),
-            Input(
-                type="radio",
-                id="material1_premade_radio",
-                name="material1_type",
-                value="premade",
-                checked=True,
-            ),
-            Label("Premade Material", for_="material1_premade_radio"),
-        ),
-        Div(
-            Group(
-                Label("Name", for_="name1", ),
-                Input(
-                    id="name1", name="name1", placeholder="Material 1 Name", value="MgO"
-                )
-            ),
-            Group(
-                Label("density", for_="rho0_1", ),
-                Input(
-                    id="rho0_1",
-                    name="rho0_1",
-                    placeholder="Density 1",
-                    type="number",
-                    value=3.583,
-                    step=1e-05,
-                ),
-            ),
-            Group(
-                Label("C0", for_="C0_1"),
-                Input(
-                    id="C0_1",
-                    name="C0_1",
-                    placeholder="C0 1",
-                    type="number",
-                    value=6.661,
-                    step=1e-05,
-                )
-            ),
-            Group(
-                Label("S", for_="S_1"),
-                Input(
-                    id="S_1",
-                    name="S_1",
-                    placeholder="S 1",
-                    type="number",
-                    value=1.36,
-                    step=1e-05,
-                )
-            ),
-            id="material1_custom",
-            style="display: none;",  # Hide custom material form by default
-        ),
-        Div(
-            Group(
-                Select(
-                    *material_options,
-                    id="material1_select",
-                    name="material1_select",
-                    placeholder="Select Material 1",
-                    hx_get="/get_material",
-                    hx_target="#material1_info",
-                    hx_trigger="change"
-                )
-            ),
-            Div(id="material1_info"),
-            id="material1_premade",
-        ),
-        Input(
-            type="hidden",
-            id="material1_selected",
-            name="material1_selected",
-            value="premade",
-        ),  # Hidden input for selected material type
-        H2("Material 2"),
-        Group(
-            Input(
-                type="radio",
-                id="material2_custom_radio",
-                name="material2_type",
-                value="custom",
-                style="border-radius: 0;"
-            ),
-            Label("Custom Material", for_="material2_custom_radio"),
-            Input(
-                type="radio",
-                id="material2_premade_radio",
-                name="material2_type",
-                value="premade",
-                checked=True,
-            ),
-            Label("Premade Material", for_="material2_premade_radio"),
-        ),
-        Div(
-            Group(
-                Label("Name", for_="name2"),
-                Input(
-                    id="name2",
-                    name="name2",
-                    placeholder="Material 2 Name",
-                    value="Epoxy",
-                )
-            ),
-            Group(
-                Label("density", for_="rho0_2"),
-                Input(
-                    id="rho0_2",
-                    name="rho0_2",
-                    placeholder="Density 2",
-                    type="number",
-                    value=1.2,
-                    step=1e-05,
-                )
-            ),
-            Group(
-                Label("C0", for_="C0_2"),
-                Input(
-                    id="C0_2",
-                    name="C0_2",
-                    placeholder="C0 2",
-                    type="number",
-                    value=2.9443,
-                    step=1e-05,
-                )
-            ),
-            Group(
-                Label("S", for_="S_2"),
-                Input(
-                    id="S_2",
-                    name="S_2",
-                    placeholder="S 2",
-                    type="number",
-                    value=1.3395,
-                    step=1e-05,
-                )
-            ),
-            id="material2_custom",
-            style="display: none;",  # Hide custom material form by default
-        ),
-        Div(
-            Group(
-                Select(
-                    *material_options,
-                    id="material2_select",
-                    name="material2_select",
-                    placeholder="Select Material 2",
-                    hx_get="/get_material",
-                    hx_target="#material2_info",
-                    hx_trigger="change"
-                )
-            ),
-            Div(id="material2_info"),
-            id="material2_premade",
-        ),
-        Input(
-            type="hidden",
-            id="material2_selected",
-            name="material2_selected",
-            value="premade",
-        ),  # Hidden input for selected material type
+        *(_create_material_form_section(1, material_options, {"name": "MgO", "rho0": 3.583, "C0": 6.661, "S": 1.36})),
+        *(_create_material_form_section(2, material_options, {"name": "Epoxy", "rho0": 1.2, "C0": 2.9443, "S": 1.3395})),
         Hr(),  # Add a horizontal rule for visual separation
         H2("Calculation Parameters"),
         Group(
