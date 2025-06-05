@@ -276,12 +276,9 @@ def get_logout(sess): # Kept descriptive name
 @rt("/")
 def get_main_page(request: Request): # Kept descriptive name
     print("Reached get_main_page route.") # Added print statement
-    # Explicitly get auth from request scope
     auth = request.scope.get("auth")
     print(f"Auth value in get_main_page: {auth}") # Added print
     if not auth:
-        # This case should ideally be handled by the 'before' middleware redirect,
-        # but as a fallback or if middleware is bypassed, redirect here.
         print("Auth not found in scope, redirecting to login.")
         return login_redir
     print(f"Auth found in scope: {auth}")
@@ -292,22 +289,41 @@ def get_main_page(request: Request): # Kept descriptive name
         if not (1 <= num_materials <= 10): num_materials = 2
     except ValueError: num_materials = 2
 
+    # --- Modern Card Container ---
+    container_style = "max-width: 900px; margin: 2em auto; padding: 2em 2.5em; background: #fff; border-radius: 14px; box-shadow: 0 2px 16px #0002; color: #222;"
+    section_style = "margin-bottom: 2em;"
+    heading_style = "margin-bottom: 0.5em; border-bottom: 1px solid #eee; padding-bottom: 0.3em;"
+    subheading_style = "margin: 1.5em 0 0.5em 0; color: #444; font-size: 1.1em;"
+
     title = f"Calculation App for {auth}"
-    top = Grid(
-        H1(title),
-        Div(A("logout", href="/logout"), " | ", A("Add Material", href="/admin/add_material"), style="text-align: right"),
+    top = Div(
+        Grid(
+            H1(title, style="margin-bottom:0.2em;"),
+            Div(
+                A("logout", href="/logout", cls="contrast"),
+                " | ",
+                A("Add Material", href="/admin/add_material", cls="secondary"),
+                style="text-align: right; margin-bottom: 0.5em;"
+            ),
+        ),
+        style=section_style
     )
     material_options = [Option("Select from dropdown", value="", disabled=True, selected=True)] + \
                        [Option(material.name, value=material.name) for material in materials()]
 
-    num_materials_form = Form(
-        Group(
-            Label("Number of Materials (1-10):", for_="num_materials_input"),
-            Input(id="num_materials_input", name="num_materials", type="number", value=num_materials, min="1", max="10"),
-            Button("Update Material Sections", type="submit"),
+    num_materials_form = Div(
+        H2("Material Mixer", style=heading_style),
+        Form(
+            Group(
+                Label("Number of Materials (1-10):", for_="num_materials_input"),
+                Input(id="num_materials_input", name="num_materials", type="number", value=num_materials, min="1", max="10", style="width: 6em; display: inline-block; margin-right: 1em;"),
+                Button("Update Material Sections", type="submit", cls="secondary"),
+            ),
+            action="/", method="get", hx_get="/", hx_target="#main-form-content",
+            hx_select="#main-form-content", hx_swap="outerHTML",
+            style="margin-bottom: 1.5em;"
         ),
-        action="/", method="get", hx_get="/", hx_target="#main-form-content",
-        hx_select="#main-form-content", hx_swap="outerHTML"
+        style=section_style
     )
     
     material_inputs_container_id = "material-inputs-container"
@@ -315,26 +331,41 @@ def get_main_page(request: Request): # Kept descriptive name
     if num_materials > 0 and not np.isclose(sum(default_vfracs), 1.0):
         default_vfracs[-1] = 1.0 - sum(default_vfracs[:-1])
 
-    material_form_sections = [_create_material_form_section(i + 1, material_options, {"vfrac": default_vfracs[i] if i < len(default_vfracs) else (1.0/num_materials)}) for i in range(num_materials)]
-    flat_material_form_sections = [item for sublist in material_form_sections for item in sublist]
+    # --- Material Sections as Cards ---
+    material_form_sections = [
+        Div(
+            _create_material_form_section(i + 1, material_options, {"vfrac": default_vfracs[i] if i < len(default_vfracs) else (1.0/num_materials)}),
+            style="background: #f8f9fa; border-radius: 8px; box-shadow: 0 1px 4px #0001; padding: 1.2em 1em; margin-bottom: 1.2em;"
+        )
+        for i in range(num_materials)
+    ]
 
     calculation_form_content_id = "main-form-content"
     calculation_form = Div(
+        H2("Calculation Parameters", style=heading_style),
         Form(
-            Div(*flat_material_form_sections, id=material_inputs_container_id), Hr(),
-            H2("Calculation Parameters"),
-            Group(Label("Mixture Name (Optional)", for_="mixture_name"), Input(id="mixture_name", name="mixture_name", placeholder="e.g., MySlurryMix", type="text", value="MyMixture")),
-            Group(Label("Minimum Up for EOS fit (km/s)", for_="upmin_fit"), Input(id="upmin_fit", name="upmin_fit", type="number", value=0.0, step="any")),
-            Group(Label("Maximum Up for EOS fit (km/s)", for_="upmax_fit"), Input(id="upmax_fit", name="upmax_fit", type="number", value=6.0, step="any")),
-            Group(Label("Number of points for Up array (EOS fit)", for_="num_points_fit"), Input(id="num_points_fit", name="num_points_fit", type="number", value=100, step="1", min="10")),
-            Button("Calculate Mixture", type="submit"),
+            Div(*material_form_sections, id=material_inputs_container_id), Hr(),
+            Group(Label("Mixture Name (Optional)", for_="mixture_name"), Input(id="mixture_name", name="mixture_name", placeholder="e.g., MySlurryMix", type="text", value="MyMixture", style="width: 60%; min-width: 180px;")),
+            Group(Label("Minimum Up for EOS fit (km/s)", for_="upmin_fit"), Input(id="upmin_fit", name="upmin_fit", type="number", value=0.0, step="any", style="width: 8em;")),
+            Group(Label("Maximum Up for EOS fit (km/s)", for_="upmax_fit"), Input(id="upmax_fit", name="upmax_fit", type="number", value=6.0, step="any", style="width: 8em;")),
+            Group(Label("Number of points for Up array (EOS fit)", for_="num_points_fit"), Input(id="num_points_fit", name="num_points_fit", type="number", value=100, step="1", min="10", style="width: 8em;")),
+            Button("Calculate Mixture", type="submit", cls="contrast", style="margin-top: 1em; width: 100%; font-size: 1.1em;"),
             method="post", hx_post="/calculate", hx_target="#plot-container", hx_swap="innerHTML",
-        ), id=calculation_form_content_id
+            style="margin-bottom: 1.5em;"
+        ), id=calculation_form_content_id, style=section_style
     )
-    warning = H4("Please allow a few seconds for calculation, especially with many materials or points.")
-    plot_container = Div(id="plot-container")
+    warning = H4("Please allow a few seconds for calculation, especially with many materials or points.", style="color: #b85c00; margin-bottom: 1.5em;")
+    plot_container = Div(id="plot-container", style="margin-top: 2em;")
     
-    return Titled(f"EOS Mixer - {auth}", top, num_materials_form, calculation_form, warning, plot_container)
+    # --- Main Card Container ---
+    return Div(
+        top,
+        num_materials_form,
+        calculation_form,
+        warning,
+        plot_container,
+        style=container_style
+    )
 
 @rt("/calculate")
 async def post_calculate(request: Request): # Kept descriptive name
