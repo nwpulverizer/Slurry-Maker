@@ -1,6 +1,7 @@
 import numpy as np
 from typing import List
 from dataclasses import dataclass
+from fasthtml.common import * 
 import plotly.graph_objs as go
 
 
@@ -63,6 +64,24 @@ def generate_mixed_hugoniot(
     mixed.mfracs = mfracs
     return mixed
 
+
+def generate_table(c0_values, s_values, rho_values, ):
+    # Create the basic structure of the table
+    table = Table(
+        Tr(
+            Th('C0'),
+            Th('S'),
+            Th('rho'),
+        ),
+
+        Tr(
+            Td(c0_values),
+            Td(s_values),
+            Td(rho_values),
+        )
+    )
+    
+    return table
 
 def plot_mixture(material1, material2, volpercent, upmin=0, upmax=6):
     up1 = np.linspace(upmin, upmax, 1000)
@@ -144,4 +163,8 @@ def plot_mixture(material1, material2, volpercent, upmin=0, upmax=6):
         yaxis_title="Us",
         legend=dict(font=dict(size=14)),
     )
-    return fig.to_html(full_html=False) + fig2.to_html(full_html=False)
+    mixedtable = generate_table(mix.C0, mix.S, mix.rho0)
+    newdiv = Div(mixedtable,NotStr(fig.to_html(full_html=False)), NotStr(fig2.to_html(full_html=False)), )
+
+    return newdiv
+

@@ -438,7 +438,7 @@ def post(calc_input: CalculationInput):
     plot_html = plot_mixture(
         material1, material2, calc_input.volpercent, calc_input.upmin, calc_input.upmax
     )
-    return NotStr(plot_html)
+    return plot_html
 
 
 @dataclass
