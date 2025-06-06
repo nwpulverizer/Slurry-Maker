@@ -1,0 +1,2 @@
+[build.environment]
+  MISE_SETTINGS_PYTHON_COMPILE = "false"
