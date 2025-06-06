@@ -6,16 +6,18 @@ from fasthtml.common import (
     Beforeware, # Added Beforeware
     P, # Added P
     H3, # Added H3
-    HtmxResponseHeaders # Added HtmxResponseHeaders
 )
+from fasthtml.core import HtmxResponseHeaders
 from hmac import compare_digest
 from dataclasses import dataclass, fields, field
 from passlib.context import CryptContext
 import passlib.exc # Ensure this is imported for specific exception types
 import os # Import os for SECRET_KEY
 import sys # Import sys for stdout.flush()
+import traceback # Import traceback for error handling
+import logging # Import logging for better error handling
 import numpy as np
-from components import (
+from .components import (
     HugoniotEOS,
     MixedHugoniotEOS,
     generate_mixed_hugoniot_many, 
@@ -26,7 +28,6 @@ from starlette.datastructures import FormData
 from starlette.middleware import Middleware
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import Response # Import Response
-import os # Import os for SECRET_KEY
 from typing import Optional
 
 # --- Shared style variables for layout and headings ---
@@ -37,6 +38,13 @@ container_style = (
 section_style = "margin-bottom: 2em;"
 heading_style = "margin-bottom: 0.5em; border-bottom: 1px solid #eee; padding-bottom: 0.3em;"
 subheading_style = "margin: 1.5em 0 0.5em 0; font-size: 1.1em;"
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Ensure data directory exists
+os.makedirs("data", exist_ok=True)
 
 # Database setup
 db = database("data/calcapp.db")
@@ -50,6 +58,137 @@ if materials not in db.t:
 
 User, Material = users.dataclass(), materials.dataclass()
 
+# Seed database with default materials if empty
+def seed_default_materials():
+    """Populate the materials database with common materials used in shock physics."""
+    try:
+        # Check if materials table is empty
+        if len(materials()) == 0:
+            logger.info("Seeding database with default materials...")
+            
+            # High-quality materials with proper citations
+            default_materials = [
+                {"name": "Silver - Wallace 2021", "rho0": 10.503, "C0": 3.21, "S": 1.62},
+                {"name": "Platinum - Hawreliak et al 2024", "rho0": 21.43, "C0": 3.64, "S": 1.54},
+                {"name": "Copper - Hawreliak et al 2024", "rho0": 8.930, "C0": 4.27, "S": 1.413},
+                {"name": "LiF", "rho0": 2.635, "C0": 5.144, "S": 1.355},
+                {"name": "MgO", "rho0": 3.583, "C0": 6.661, "S": 1.36},
+                {"name": "Fused Qtz - Jackson 1979", "rho0": 2.204, "C0": 1.0861, "S": 1.599},
+                {"name": "2024 Al - McQueen 1970", "rho0": 2.785, "C0": 5.328, "S": 1.338},
+                {"name": "Pyrite - Ahrens 1987", "rho0": 4.914, "C0": 5.478, "S": 1.401},
+                {"name": "Diamond", "rho0": 1.6, "C0": 5, "S": 1.27},
+                {"name": "Sapphire - Erskine 1993", "rho0": 3.98, "C0": 8.74, "S": 0.96},
+                {"name": "SiC - McQueen 1970", "rho0": 3.16, "C0": 8, "S": 0.95},
+                {"name": "Zr - McQueen 1970", "rho0": 6.505, "C0": 3.757, "S": 1.018},
+                {"name": "Mg - McQueen 1970", "rho0": 1.737, "C0": 4.492, "S": 1.263},
+                {"name": "Kapton", "rho0": 1.37, "C0": 2.327, "S": 1.55},
+            ]
+            
+            for mat_data in default_materials:
+                try:
+                    materials.insert(mat_data)
+                    logger.info(f"Added material: {mat_data['name']}")
+                except Exception as e:
+                    logger.warning(f"Could not add material {mat_data['name']}: {e}")
+                    
+            logger.info(f"Finished seeding database with {len(default_materials)} materials")
+        else:
+            logger.info(f"Materials database already contains {len(materials())} materials")
+    except Exception as e:
+        logger.error(f"Error seeding default materials: {e}")
+
+def update_materials_for_testing():
+    """Replace current materials with the new high-quality materials list (for testing only)."""
+    try:
+        logger.info("Updating materials database for testing...")
+        
+        # Clear existing materials
+        existing_materials = list(materials())
+        for mat in existing_materials:
+            try:
+                materials.delete(mat.name)
+                logger.info(f"Removed material: {mat.name}")
+            except Exception as e:
+                logger.warning(f"Could not remove material {mat.name}: {e}")
+        
+        # Add new materials
+        new_materials = [
+            {"name": "Silver - Wallace 2021", "rho0": 10.503, "C0": 3.21, "S": 1.62},
+            {"name": "Platinum - Hawreliak et al 2024", "rho0": 21.43, "C0": 3.64, "S": 1.54},
+            {"name": "Copper - Hawreliak et al 2024", "rho0": 8.930, "C0": 4.27, "S": 1.413},
+            {"name": "LiF", "rho0": 2.635, "C0": 5.144, "S": 1.355},
+            {"name": "MgO", "rho0": 3.583, "C0": 6.661, "S": 1.36},
+            {"name": "Fused Qtz - Jackson 1979", "rho0": 2.204, "C0": 1.0861, "S": 1.599},
+            {"name": "2024 Al - McQueen 1970", "rho0": 2.785, "C0": 5.328, "S": 1.338},
+            {"name": "Pyrite - Ahrens 1987", "rho0": 4.914, "C0": 5.478, "S": 1.401},
+            {"name": "Diamond", "rho0": 1.6, "C0": 5, "S": 1.27},
+            {"name": "Sapphire - Erskine 1993", "rho0": 3.98, "C0": 8.74, "S": 0.96},
+            {"name": "SiC - McQueen 1970", "rho0": 3.16, "C0": 8, "S": 0.95},
+            {"name": "Zr - McQueen 1970", "rho0": 6.505, "C0": 3.757, "S": 1.018},
+            {"name": "Mg - McQueen 1970", "rho0": 1.737, "C0": 4.492, "S": 1.263},
+            {"name": "Kapton", "rho0": 1.37, "C0": 2.327, "S": 1.55},
+        ]
+        
+        for mat_data in new_materials:
+            try:
+                materials.insert(mat_data)
+                logger.info(f"Added material: {mat_data['name']}")
+            except Exception as e:
+                logger.warning(f"Could not add material {mat_data['name']}: {e}")
+                
+        logger.info(f"Finished updating database with {len(new_materials)} materials")
+        
+    except Exception as e:
+        logger.error(f"Error updating materials for testing: {e}")
+
+# Initialize default materials
+seed_default_materials()
+
+# Input validation helpers
+def validate_positive_number(value: str, field_name: str) -> tuple[bool, float, str]:
+    """Validate that a string represents a positive number.
+    
+    Returns:
+        tuple: (is_valid: bool, parsed_value: float, error_message: str)
+    """
+    try:
+        num = float(value)
+        if num <= 0:
+            return False, 0.0, f"{field_name} must be positive"
+        return True, num, ""
+    except (ValueError, TypeError):
+        return False, 0.0, f"{field_name} must be a valid number"
+
+def validate_fraction(value: str, field_name: str) -> tuple[bool, float, str]:
+    """Validate that a string represents a number between 0 and 1.
+    
+    Returns:
+        tuple: (is_valid: bool, parsed_value: float, error_message: str)
+    """
+    try:
+        num = float(value)
+        if not (0 <= num <= 1):
+            return False, 0.0, f"{field_name} must be between 0 and 1"
+        return True, num, ""
+    except (ValueError, TypeError):
+        return False, 0.0, f"{field_name} must be a valid number"
+
+def validate_integer_range(value: str, field_name: str, min_val: Optional[int] = None, max_val: Optional[int] = None) -> tuple[bool, int, str]:
+    """Validate that a string represents an integer within optional range.
+    
+    Returns:
+        tuple: (is_valid: bool, parsed_value: int, error_message: str)
+    """
+    try:
+        num = int(value)
+        if min_val is not None and num < min_val:
+            return False, 0, f"{field_name} must be at least {min_val}"
+        if max_val is not None and num > max_val:
+            return False, 0, f"{field_name} must be at most {max_val}"
+        return True, num, ""
+    except (ValueError, TypeError):
+        return False, 0, f"{field_name} must be a valid integer"
+
 # Password hashing setup
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -61,14 +200,14 @@ def _not_found(req, exc):
 
 
 def before(req, sess):
-    print("Before middleware running.") # Added print
-    print(f"Session content in before: {dict(sess)}") # Added print
-    print(f"Request cookies in before: {req.cookies if hasattr(req, 'cookies') else 'No cookies attr'}") # Added print
+    logger.debug("Before middleware running.")
+    logger.debug(f"Session content in before: {dict(sess)}")
+    logger.debug(f"Request cookies in before: {req.cookies if hasattr(req, 'cookies') else 'No cookies attr'}")
     auth = req.scope["auth"] = sess.get("auth", None)
     if not auth:
-        print("Auth not found in session, redirecting to login.") # Added print
+        logger.debug("Auth not found in session, redirecting to login.")
         return login_redir
-    print(f"Auth found in session: {auth}") # Added print
+    logger.debug(f"Auth found in session: {auth}")
 
 
 bware = Beforeware(before, skip=["/favicon\\.ico", "/static/.*", ".*\\.css", "/login"])
@@ -107,7 +246,7 @@ def _create_material_form_section(section_idx: int, material_options: list, defa
         Option("Select from dropdown", value="", disabled=True, selected=(selected_material == ""))
     ] + [
         Option(material.name, value=material.name, selected=(material.name == selected_material))
-        for material in material_options[1:] # skip the first Option, which is always the placeholder
+        for material in materials() # Use materials() directly, not material_options
     ]
 
     return (
@@ -129,10 +268,15 @@ def _create_material_form_section(section_idx: int, material_options: list, defa
             ),
             Div(
                 Group(
-                    Select(
+                                        Select(
                         *premade_options, id=select_id, name=select_id,
                         placeholder=f"Select Material {section_idx}",
-                        hx_get="/get_material", hx_target=f"#{info_div_id}", hx_trigger="change", hx_include=f"[name='{select_id}']"
+                        hx_get="/get_material", 
+                        hx_target=f"#{info_div_id}", 
+                        hx_trigger="change", 
+                        hx_include=f"[name='{select_id}']",
+                        hx_swap="innerHTML",
+                        hx_headers='{"Cache-Control": "no-cache"}'
                     )
                 ),
                 Div(id=info_div_id),
@@ -236,12 +380,11 @@ async def login(request: Request, sess):
         return Titled("Login", frm, H3("First time login will create your account. Do not reuse passwords from other websites on this website."))
     else:
         form = await request.form() if hasattr(request, 'form') and callable(request.form) else request.form
-        name = form.get("name")
-        pwd = form.get("pwd")
-        print(f"Attempting login for user: {name}")
+        name = str(form.get("name", "")).strip() if form.get("name") else ""
+        pwd = str(form.get("pwd", "")).strip() if form.get("pwd") else ""
+        logger.info(f"Login attempt for user: {name}")
         if not name or not pwd:
-            print("Login failed: Missing name or password.")
-            print(f"Returning: {login_redir}")
+            logger.warning("Login failed: Missing name or password.")
             return login_redir
         try:
             user_record = users[name]
@@ -301,13 +444,13 @@ def get_logout(sess): # Kept descriptive name
 
 @rt("/")
 def get_main_page(request: Request): # Kept descriptive name
-    print("Reached get_main_page route.") # Added print statement
+    logger.debug("Reached get_main_page route.")
     auth = request.scope.get("auth")
-    print(f"Auth value in get_main_page: {auth}") # Added print
+    logger.debug(f"Auth value in get_main_page: {auth}")
     if not auth:
-        print("Auth not found in scope, redirecting to login.")
+        logger.debug("Auth not found in scope, redirecting to login.")
         return login_redir
-    print(f"Auth found in scope: {auth}")
+    logger.debug(f"Auth found in scope: {auth}")
 
     num_materials_str = request.query_params.get('num_materials', '2')
     try:
@@ -440,9 +583,13 @@ def get_main_page(request: Request): # Kept descriptive name
     except (ValueError, TypeError):
         num_points_fit = 100
     
+    # --- Error container for validation messages ---
+    error_container = Div(id="error-container", style="margin-bottom: 1em;")
+    
     # --- Wrap calculation form and plot container in a single parent Div ---
     calculation_form = Div(
         H2("Calculation Parameters", style=heading_style),
+        error_container,
         Form(
             Div(*material_form_sections, id=material_inputs_container_id), Hr(),
             Group(Label("Mixture Name (Optional)", for_="mixture_name"), Input(id="mixture_name", name="mixture_name", placeholder="e.g., MySlurryMix", type="text", value=mixture_name, style="width: 60%; min-width: 180px;")),
@@ -527,21 +674,29 @@ def get_numeric_form_value(form_data, key, default, typ=float):
     except (ValueError, TypeError):
         return default
 
-@rt("/calculate")
-async def post_calculate(request: Request):
-    form_data: FormData = await request.form()
+def process_material_form_data(form_data: FormData) -> tuple[list, list, str]:
+    """
+    Process form data to extract material configurations for calculation and plotting.
+    
+    Returns:
+        tuple: (material_data_list, original_material_configs_for_plot, error_message)
+        If error_message is not empty, an error occurred and should be returned to user.
+    """
     try:
+        # Find maximum material index
         max_idx = 0
         for key in form_data.keys():
             if key.startswith("material_type_"):
                 try:
                     idx = int(key.split("_")[-1])
-                    if idx > max_idx: max_idx = idx
-                except ValueError: continue
+                    if idx > max_idx: 
+                        max_idx = idx
+                except ValueError: 
+                    continue
+        
         num_materials_in_form = max_idx
-
         if num_materials_in_form == 0:
-            return P("Error: No material data received or material sections not found in form.", style="color:red;")
+            return [], [], "No material data received or material sections not found in form."
 
         material_data_list = [] 
         original_material_configs_for_plot = []
@@ -551,207 +706,337 @@ async def post_calculate(request: Request):
             material_type = str(form_data.get(f"material_type_{i}", ""))
             vfrac_str = str(form_data.get(f"vfrac{i}", "0")) 
 
-            if not vfrac_str: vfrac_str = "0" # Default to 0 if empty string after str conversion
-            try:
-                vfrac = float(vfrac_str)
-                if not (0 <= vfrac <= 1):
-                     return P(f"Error: Volume fraction for Material {i} ({vfrac}) must be between 0 and 1.", style="color:red;")
-            except ValueError:
-                return P(f"Error: Invalid volume fraction for Material {i}: '{vfrac_str}'. Must be a number.", style="color:red;")
+            if not vfrac_str: 
+                vfrac_str = "0"
+            
+            # Validate volume fraction
+            is_valid, vfrac, error_msg = validate_fraction(vfrac_str, f"Volume fraction for Material {i}")
+            if not is_valid:
+                return [], [], error_msg
 
             eos = None
             if material_type == "premade":
                 selected_name = str(form_data.get(f"material{i}_select", ""))
                 if not selected_name:
-                    if vfrac > 0: return P(f"Error: Premade Material {i} not selected but has volume fraction > 0.", style="color:red;")
-                    else: continue
+                    if vfrac > 0: 
+                        return [], [], f"Premade Material {i} not selected but has volume fraction > 0."
+                    else: 
+                        continue
                 try:
                     db_mat = materials[selected_name]
                     eos = HugoniotEOS(name=db_mat.name, rho0=db_mat.rho0, C0=db_mat.C0, S=db_mat.S)
                 except NotFoundError:
-                     if vfrac > 0: return P(f"Error: Premade Material {i} ('{selected_name}') not found in database.", style="color:red;")
-                     else: continue
+                    if vfrac > 0: 
+                        return [], [], f"Premade Material {i} ('{selected_name}') not found in database."
+                    else: 
+                        continue
+                        
             elif material_type == "custom":
                 name = str(form_data.get(f"name{i}", f"CustomMat{i}"))
+                rho0_str = str(form_data.get(f"rho0_{i}", "0"))
+                c0_str = str(form_data.get(f"C0_{i}", "0"))
+                s_val_str = str(form_data.get(f"S_{i}", "0"))
+                
+                # Validate custom material properties
+                rho0_valid, rho0, rho0_error = validate_positive_number(rho0_str, f"Density for Material {i}")
+                c0_valid, C0, c0_error = validate_positive_number(c0_str, f"C0 for Material {i}")
+                
                 try:
-                    rho0_str = str(form_data.get(f"rho0_{i}", "0"))
-                    c0_str = str(form_data.get(f"C0_{i}", "0"))
-                    s_val_str = str(form_data.get(f"S_{i}", "0"))
-                    rho0 = float(rho0_str)
-                    C0 = float(c0_str)
                     S_val = float(s_val_str)
-                    if rho0 <=0 or C0 <=0:
-                        if vfrac > 0: return P(f"Error: For Custom Material {i}, Density and C0 must be positive.", style="color:red;")
-                        else: continue 
-                    eos = HugoniotEOS(name=name, rho0=rho0, C0=C0, S=S_val)
-                except (ValueError, TypeError) as e:
-                    if vfrac > 0: return P(f"Error: Invalid custom material properties for Material {i}: {e}", style="color:red;")
-                    else: continue
+                except (ValueError, TypeError):
+                    if vfrac > 0:
+                        return [], [], f"Invalid S value for Material {i}: must be a number"
+                    else:
+                        continue
+                
+                if not rho0_valid:
+                    if vfrac > 0:
+                        return [], [], rho0_error
+                    else:
+                        continue
+                        
+                if not c0_valid:
+                    if vfrac > 0:
+                        return [], [], c0_error
+                    else:
+                        continue
+                
+                eos = HugoniotEOS(name=name, rho0=rho0, C0=C0, S=S_val)
+                
             else:
-                if vfrac > 0 and material_type: return P(f"Error: Unknown type for Material {i}: {material_type}", style="color:red;")
-                elif vfrac > 0 and not material_type: return P(f"Error: Material type not specified for Material {i} with vfrac > 0.", style="color:red;")
-                else: continue 
+                if vfrac > 0 and material_type: 
+                    return [], [], f"Unknown type for Material {i}: {material_type}"
+                elif vfrac > 0 and not material_type: 
+                    return [], [], f"Material type not specified for Material {i} with vfrac > 0."
+                else: 
+                    continue 
             
-            if eos: # Add to plotting list even if vfrac is 0
+            if eos:  # Add to plotting list even if vfrac is 0
                 original_material_configs_for_plot.append((eos, vfrac))
-                if vfrac > 0: # Only add to calculation list if vfrac > 0
+                if vfrac > 0:  # Only add to calculation list if vfrac > 0
                     material_data_list.append((eos, vfrac))
                     total_vfrac += vfrac
         
         if not material_data_list:
-            return P("Error: No materials with volume fraction > 0 to calculate a mixture.", style="color:red;")
+            return [], [], "No materials with volume fraction > 0 to calculate a mixture."
 
         if not np.isclose(total_vfrac, 1.0):
-            return P(f"Error: Sum of volume fractions ({total_vfrac:.4f}) for active materials must be 1.0. Please adjust.", style="color:red;")
+            return [], [], f"Sum of volume fractions ({total_vfrac:.4f}) for active materials must be 1.0. Please adjust."
 
+        return material_data_list, original_material_configs_for_plot, ""
+        
+    except Exception as e:
+        logger.error(f"Error processing material form data: {e}")
+        return [], [], f"Unexpected error processing material data: {e}"
+
+def rebuild_form_with_error(form_data: FormData, error_message: str):
+    """Helper function to rebuild the entire form with an error message and preserved user data."""
+    # Count actual number of materials from form data by looking for vfrac fields
+    num_materials = 0
+    for i in range(1, 11):  # Check up to 10 materials
+        if f"vfrac{i}" in form_data:
+            num_materials = i
+    
+    # Fall back to 2 if no materials found
+    if num_materials == 0:
+        num_materials = 2
+    
+    # Create material options
+    material_options = [Option("Select from dropdown", value="", disabled=True, selected=True)] + \
+                       [Option(material.name, value=material.name) for material in materials()]
+    
+    # Function to get preserved data for each material
+    def get_material_data(i):
+        idx = i + 1
+        material_data = {
+            "vfrac": get_numeric_form_value(form_data, f"vfrac{idx}", 1.0/num_materials, float),
+            "material_type": str(form_data.get(f"material_type_{idx}", "premade")),
+            "selected": str(form_data.get(f"material{idx}_select", "")),
+            "name": str(form_data.get(f"name{idx}", "")),
+            "rho0": get_numeric_form_value(form_data, f"rho0_{idx}", 1.0, float),
+            "C0": get_numeric_form_value(form_data, f"C0_{idx}", 1.5, float),
+            "S": get_numeric_form_value(form_data, f"S_{idx}", 1.5, float)
+        }
+        
+        return material_data
+
+    # Create material form sections with preserved data
+    material_form_sections = [
+        Div(
+            _create_material_form_section(i + 1, material_options, get_material_data(i)),
+            style="background: #f8f9fa; border-radius: 8px; box-shadow: 0 1px 4px #0001; padding: 1.2em 1em; margin-bottom: 1.2em;"
+        )
+        for i in range(num_materials)
+    ]
+    
+    # Preserve calculation parameters
+    mixture_name = str(form_data.get("mixture_name", "MyMixture"))
+    upmin_fit = get_numeric_form_value(form_data, "upmin_fit", 0.0, float)
+    upmax_fit = get_numeric_form_value(form_data, "upmax_fit", 6.0, float)
+    num_points_fit = get_numeric_form_value(form_data, "num_points_fit", 100, int)
+    
+    # Error container with message
+    error_container = Div(
+        P(f"Error: {error_message}", style="color:red; margin:0; padding:0.5em; background:#ffebee; border-radius:4px; border:1px solid #ffcdd2;"),
+        id="error-container", 
+        style="margin-bottom: 1em;"
+    )
+    
+    # Build the complete form
+    calculation_form = Div(
+        H2("Calculation Parameters", style=heading_style),
+        Form(
+            Div(*material_form_sections, id="material-inputs-container"), 
+            error_container,
+            Hr(),
+            Group(Label("Mixture Name (Optional)", for_="mixture_name"), Input(id="mixture_name", name="mixture_name", placeholder="e.g., MySlurryMix", type="text", value=mixture_name, style="width: 60%; min-width: 180px;")),
+            Group(Label("Minimum Up for EOS fit (km/s)", for_="upmin_fit"), Input(id="upmin_fit", name="upmin_fit", type="number", value=upmin_fit, step="any", style="width: 8em;")),
+            Group(Label("Maximum Up for EOS fit (km/s)", for_="upmax_fit"), Input(id="upmax_fit", name="upmax_fit", type="number", value=upmax_fit, step="any", style="width: 8em;")),
+            Group(Label("Number of points for Up array (EOS fit)", for_="num_points_fit"), Input(id="num_points_fit", name="num_points_fit", type="number", value=num_points_fit, step="1", min="10", style="width: 8em;")),
+            Button("Calculate Mixture", type="submit", cls="contrast", style="margin-top: 1em; width: 100%; font-size: 1.1em;"),
+            method="post", hx_post="/calculate", hx_target="#main-form-content", hx_swap="outerHTML",
+            style="margin-bottom: 1.5em;"
+        ), 
+        id=None, 
+        style=section_style
+    )
+    
+    # Return complete form with material mixer section and empty plot container
+    num_materials_form = Div(
+        H2("Material Mixer", style=heading_style),
+        Form(
+            Group(
+                Label("Number of Materials (1-10):", for_="num_materials_input"),
+                Input(
+                    id="num_materials_input", 
+                    name="num_materials", 
+                    type="number", 
+                    value=num_materials, 
+                    min="1", 
+                    max="10", 
+                    style="width: 6em; display: inline-block; margin-right: 1em;",
+                    onchange="updateMaterialsWithCurrentData(this.value)"
+                ),
+            ),
+            id="num-materials-form",
+            style="margin-bottom: 1.5em;"
+        ),
+        style=section_style
+    )
+    
+    # Return only the main form content (without the material mixer section)
+    # because HTMX target is #main-form-content
+    return Div(
+        calculation_form,
+        Div(" ", id="plot-container", style="margin-top: 2em;"),
+        id="main-form-content",
+        style="margin-bottom: 2em;"
+    )
+
+@rt("/calculate")
+async def post_calculate(request: Request):
+    form_data: FormData = await request.form()
+    try:
+        # Use the refactored function to process material data
+        material_data_list, original_material_configs_for_plot, error_msg = process_material_form_data(form_data)
+        
+        if error_msg:
+            # Return complete form with error message and preserved data
+            return rebuild_form_with_error(form_data, error_msg)
+
+        # Validate calculation parameters
         mixture_name = str(form_data.get("mixture_name", "MyMixture"))
         upmin_fit = get_numeric_form_value(form_data, "upmin_fit", 0.0, float)
         upmax_fit = get_numeric_form_value(form_data, "upmax_fit", 6.0, float)
         num_points_fit = get_numeric_form_value(form_data, "num_points_fit", 100, int)
 
-        if upmin_fit >= upmax_fit: return P("Error: Up_min for fit must be less than Up_max for fit.", style="color:red;")
-        if num_points_fit < 10: return P("Error: Number of points for Up array (fit) must be at least 10.", style="color:red;")
+        if upmin_fit >= upmax_fit: 
+            return rebuild_form_with_error(form_data, "Up_min for fit must be less than Up_max for fit.")
+        if num_points_fit < 10: 
+            return rebuild_form_with_error(form_data, "Number of points for Up array (fit) must be at least 10.")
 
         up_ref_array = np.linspace(upmin_fit, upmax_fit, num_points_fit)
 
-        try:
-            mixed_eos_result = generate_mixed_hugoniot_many(name=mixture_name, material_data_list=material_data_list, Up_ref=up_ref_array)
-            plot_html = plot_mixture_many(original_material_configs=original_material_configs_for_plot, mixed_eos=mixed_eos_result, up_min=upmin_fit, up_max=upmax_fit, num_points=200)
-            # --- Rebuild the calculation form with POSTed values pre-filled ---
-            # Reuse the same logic as get_main_page, but fill values from form_data
-            # (For brevity, only vfrac and mixture_name are pre-filled; extend as needed)
-            num_materials = num_materials_in_form
-            material_inputs_container_id = "material-inputs-container"
-            material_options = [Option("Select from dropdown", value="", disabled=True, selected=True)] + \
-                               [Option(material.name, value=material.name) for material in materials()]
-            material_form_sections = [
-                Div(
-                    _create_material_form_section(
-                        i + 1,
-                        material_options,
-                        {
-                            "vfrac": form_data.get(f"vfrac{i+1}", 1.0/num_materials),
-                            "name": form_data.get(f"name{i+1}", ""),
-                            "rho0": get_numeric_form_value(form_data, f"rho0_{i+1}", 1.0, float),
-                            "C0": get_numeric_form_value(form_data, f"C0_{i+1}", 1.5, float),
-                            "S": get_numeric_form_value(form_data, f"S_{i+1}", 1.5, float),
-                            "material_type": form_data.get(f"material_type_{i+1}", "premade"),
-                            "selected": form_data.get(f"material{i+1}_select", ""),
-                        }
-                    ),
-                    style="background: #f8f9fa; border-radius: 8px; box-shadow: 0 1px 4px #0001; padding: 1.2em 1em; margin-bottom: 1.2em;"
-                )
-                for i in range(num_materials)
-            ]
-            calculation_form = Div(
-                H2("Calculation Parameters", style=heading_style),
-                Form(
-                    Div(*material_form_sections, id=material_inputs_container_id), Hr(),
-                    Group(Label("Mixture Name (Optional)", for_="mixture_name"), Input(id="mixture_name", name="mixture_name", placeholder="e.g., MySlurryMix", type="text", value=mixture_name, style="width: 60%; min-width: 180px;")),
-                    Group(Label("Minimum Up for EOS fit (km/s)", for_="upmin_fit"), Input(id="upmin_fit", name="upmin_fit", type="number", value=upmin_fit, step="any", style="width: 8em;")),
-                    Group(Label("Maximum Up for EOS fit (km/s)", for_="upmax_fit"), Input(id="upmax_fit", name="upmax_fit", type="number", value=upmax_fit, step="any", style="width: 8em;")),
-                    Group(Label("Number of points for Up array (EOS fit)", for_="num_points_fit"), Input(id="num_points_fit", name="num_points_fit", type="number", value=num_points_fit, step="1", min="10", style="width: 8em;")),
-                    Button("Calculate Mixture", type="submit", cls="contrast", style="margin-top: 1em; width: 100%; font-size: 1.1em;"),
-                    Button("Plot", id="plot-btn", type="submit", name="plot", hx_post="/plot", hx_target="#plot-container", hx_swap="innerHTML", hx_include="closest form", hx_trigger="click", cls="secondary", style="margin-top:1em; width:100%; font-size:1.1em;"),
-                    method="post", hx_post="/calculate", hx_target="#main-form-content", hx_swap="outerHTML",
-                    style="margin-bottom: 1.5em;"
-                ), id=None, style=section_style
-            )
-            # Return both the form and the plot in the same parent Div
-            return Div(
-                calculation_form,
-                Div(
-                    plot_html,
-                    id="plot-container",
-                    style="margin-top: 2em;"
+        # Perform calculation
+        mixed_eos_result = generate_mixed_hugoniot_many(
+            name=mixture_name, 
+            material_data_list=material_data_list, 
+            Up_ref=up_ref_array
+        )
+        plot_html = plot_mixture_many(
+            original_material_configs=original_material_configs_for_plot, 
+            mixed_eos=mixed_eos_result, 
+            up_min=upmin_fit, 
+            up_max=upmax_fit, 
+            num_points=200
+        )
+        
+        # Rebuild the calculation form with POSTed values pre-filled
+        num_materials_in_form = len(original_material_configs_for_plot)
+        material_inputs_container_id = "material-inputs-container"
+        material_options = [Option("Select from dropdown", value="", disabled=True, selected=True)] + \
+                           [Option(material.name, value=material.name) for material in materials()]
+        
+        material_form_sections = [
+            Div(
+                _create_material_form_section(
+                    i + 1,
+                    material_options,
+                    {
+                        "vfrac": form_data.get(f"vfrac{i+1}", 1.0/num_materials_in_form),
+                        "name": form_data.get(f"name{i+1}", ""),
+                        "rho0": get_numeric_form_value(form_data, f"rho0_{i+1}", 1.0, float),
+                        "C0": get_numeric_form_value(form_data, f"C0_{i+1}", 1.5, float),
+                        "S": get_numeric_form_value(form_data, f"S_{i+1}", 1.5, float),
+                        "material_type": form_data.get(f"material_type_{i+1}", "premade"),
+                        "selected": form_data.get(f"material{i+1}_select", ""),
+                    }
                 ),
-                id="main-form-content",
-                style="margin-bottom: 2em;"
+                style="background: #f8f9fa; border-radius: 8px; box-shadow: 0 1px 4px #0001; padding: 1.2em 1em; margin-bottom: 1.2em;"
             )
-        except ValueError as ve: return P(f"Calculation Error: {ve}", style="color:red;")
-        except Exception as e:
-            import traceback; print(traceback.format_exc())
-            return P(f"An unexpected error occurred: {e}", style="color:red;")
+            for i in range(num_materials_in_form)
+        ]
+        
+        calculation_form = Div(
+            H2("Calculation Parameters", style=heading_style),
+            Form(
+                Div(*material_form_sections, id=material_inputs_container_id), Hr(),
+                Group(Label("Mixture Name (Optional)", for_="mixture_name"), Input(id="mixture_name", name="mixture_name", placeholder="e.g., MySlurryMix", type="text", value=mixture_name, style="width: 60%; min-width: 180px;")),
+                Group(Label("Minimum Up for EOS fit (km/s)", for_="upmin_fit"), Input(id="upmin_fit", name="upmin_fit", type="number", value=upmin_fit, step="any", style="width: 8em;")),
+                Group(Label("Maximum Up for EOS fit (km/s)", for_="upmax_fit"), Input(id="upmax_fit", name="upmax_fit", type="number", value=upmax_fit, step="any", style="width: 8em;")),
+                Group(Label("Number of points for Up array (EOS fit)", for_="num_points_fit"), Input(id="num_points_fit", name="num_points_fit", type="number", value=num_points_fit, step="1", min="10", style="width: 8em;")),
+                Button("Calculate Mixture", type="submit", cls="contrast", style="margin-top: 1em; width: 100%; font-size: 1.1em;"),
+                Button("Plot", id="plot-btn", type="submit", name="plot", hx_post="/plot", hx_target="#plot-container", hx_swap="innerHTML", hx_include="closest form", hx_trigger="click", cls="secondary", style="margin-top:1em; width:100%; font-size:1.1em;"),
+                method="post", hx_post="/calculate", hx_target="#main-form-content", hx_swap="outerHTML",
+                style="margin-bottom: 1.5em;"
+            ), id=None, style=section_style
+        )
+        
+        # Return both the form and the plot in the same parent Div
+        return Div(
+            calculation_form,
+            Div(
+                plot_html,
+                id="plot-container",
+                style="margin-top: 2em;"
+            ),
+            id="main-form-content",
+            style="margin-bottom: 2em;"
+        )
+        
+    except ValueError as ve: 
+        logger.error(f"Calculation error: {ve}")
+        return rebuild_form_with_error(form_data, f"Calculation Error: {ve}")
     except Exception as e:
-        import traceback; print(traceback.format_exc())
-        return P(f"An unexpected error occurred in post_calculate: {e}", style="color:red;")
+        logger.error(f"Unexpected error in post_calculate: {e}")
+        logger.error(traceback.format_exc())
+        return rebuild_form_with_error(form_data, f"An unexpected error occurred: {e}")
 
 @rt("/plot")
 async def post_plot(request: Request):
     form_data: FormData = await request.form()
-    # Reuse the same logic as in /calculate to get the plot, but only render the plot (not the form)
-    max_idx = 0
-    for key in form_data.keys():
-        if key.startswith("material_type_"):
-            try:
-                idx = int(key.split("_")[-1])
-                if idx > max_idx: max_idx = idx
-            except ValueError: continue
-    num_materials_in_form = max_idx
-    if num_materials_in_form == 0:
-        return P("Error: No material data received or material sections not found in form.", style="color:red;")
-    material_data_list = [] 
-    original_material_configs_for_plot = []
-    total_vfrac = 0.0
-    for i in range(1, num_materials_in_form + 1):
-        material_type = str(form_data.get(f"material_type_{i}", ""))
-        vfrac_str = str(form_data.get(f"vfrac{i}", "0")) 
-        if not vfrac_str: vfrac_str = "0"
-        try:
-            vfrac = float(vfrac_str)
-            if not (0 <= vfrac <= 1):
-                 return P(f"Error: Volume fraction for Material {i} ({vfrac}) must be between 0 and 1.", style="color:red;")
-        except ValueError:
-            return P(f"Error: Invalid volume fraction for Material {i}: '{vfrac_str}'. Must be a number.", style="color:red;")
-        eos = None
-        if material_type == "premade":
-            selected_name = str(form_data.get(f"material{i}_select", ""))
-            if not selected_name:
-                if vfrac > 0: return P(f"Error: Premade Material {i} not selected but has volume fraction > 0.", style="color:red;")
-                else: continue
-            try:
-                db_mat = materials[selected_name]
-                eos = HugoniotEOS(name=db_mat.name, rho0=db_mat.rho0, C0=db_mat.C0, S=db_mat.S)
-            except NotFoundError:
-                 if vfrac > 0: return P(f"Error: Premade Material {i} ('{selected_name}') not found in database.", style="color:red;")
-                 else: continue
-        elif material_type == "custom":
-            name = str(form_data.get(f"name{i}", f"CustomMat{i}"))
-            rho0 = get_numeric_form_value(form_data, f"rho0_{i}", 1.0, float)
-            C0 = get_numeric_form_value(form_data, f"C0_{i}", 1.5, float)
-            S_val = get_numeric_form_value(form_data, f"S_{i}", 1.5, float)
-            if rho0 <=0 or C0 <=0:
-                if vfrac > 0: return P(f"Error: For Custom Material {i}, Density and C0 must be positive.", style="color:red;")
-                else: continue 
-            eos = HugoniotEOS(name=name, rho0=rho0, C0=C0, S=S_val)
-        else:
-            if vfrac > 0 and material_type: return P(f"Error: Unknown type for Material {i}: {material_type}", style="color:red;")
-            elif vfrac > 0 and not material_type: return P(f"Error: Material type not specified for Material {i} with vfrac > 0.", style="color:red;")
-            else: continue 
-        if eos:
-            original_material_configs_for_plot.append((eos, vfrac))
-            if vfrac > 0:
-                material_data_list.append((eos, vfrac))
-                total_vfrac += vfrac
-    if not material_data_list:
-        return P("Error: No materials with volume fraction > 0 to calculate a mixture.", style="color:red;")
-    if not np.isclose(total_vfrac, 1.0):
-        return P(f"Error: Sum of volume fractions ({total_vfrac:.4f}) for active materials must be 1.0. Please adjust.", style="color:red;")
-    mixture_name = str(form_data.get("mixture_name", "MyMixture"))
-    upmin_fit = get_numeric_form_value(form_data, "upmin_fit", 0.0, float)
-    upmax_fit = get_numeric_form_value(form_data, "upmax_fit", 6.0, float)
-    num_points_fit = get_numeric_form_value(form_data, "num_points_fit", 100, int)
-    if upmin_fit >= upmax_fit: return P("Error: Up_min for fit must be less than Up_max for fit.", style="color:red;")
-    if num_points_fit < 10: return P("Error: Number of points for Up array (fit) must be at least 10.", style="color:red;")
-    up_ref_array = np.linspace(upmin_fit, upmax_fit, num_points_fit)
     try:
-        mixed_eos_result = generate_mixed_hugoniot_many(name=mixture_name, material_data_list=material_data_list, Up_ref=up_ref_array)
-        plot_html = plot_mixture_many(original_material_configs=original_material_configs_for_plot, mixed_eos=mixed_eos_result, up_min=upmin_fit, up_max=upmax_fit, num_points=200)
+        # Use the refactored function to process material data
+        material_data_list, original_material_configs_for_plot, error_msg = process_material_form_data(form_data)
+        
+        if error_msg:
+            return P(f"Error: {error_msg}", style="color:red;")
+
+        # Validate calculation parameters
+        mixture_name = str(form_data.get("mixture_name", "MyMixture"))
+        upmin_fit = get_numeric_form_value(form_data, "upmin_fit", 0.0, float)
+        upmax_fit = get_numeric_form_value(form_data, "upmax_fit", 6.0, float)
+        num_points_fit = get_numeric_form_value(form_data, "num_points_fit", 100, int)
+
+        if upmin_fit >= upmax_fit: 
+            return P("Error: Up_min for fit must be less than Up_max for fit.", style="color:red;")
+        if num_points_fit < 10: 
+            return P("Error: Number of points for Up array (fit) must be at least 10.", style="color:red;")
+
+        up_ref_array = np.linspace(upmin_fit, upmax_fit, num_points_fit)
+
+        # Perform calculation and return plot
+        mixed_eos_result = generate_mixed_hugoniot_many(
+            name=mixture_name, 
+            material_data_list=material_data_list, 
+            Up_ref=up_ref_array
+        )
+        plot_html = plot_mixture_many(
+            original_material_configs=original_material_configs_for_plot, 
+            mixed_eos=mixed_eos_result, 
+            up_min=upmin_fit, 
+            up_max=upmax_fit, 
+            num_points=200
+        )
         return plot_html
-    except ValueError as ve: return P(f"Calculation Error: {ve}", style="color:red;")
+        
+    except ValueError as ve: 
+        logger.error(f"Calculation error in plot route: {ve}")
+        return P(f"Calculation Error: {ve}", style="color:red;")
     except Exception as e:
-        import traceback; print(traceback.format_exc())
-        return P(f"An unexpected error occurred: {e}", style="color:red;")
+        logger.error(f"Unexpected error in plot route: {e}")
+        logger.error(traceback.format_exc())
+        return P(f"Unexpected Error: {e}", style="color:red;")
 
 @rt("/get_material")
 def get_material_details(request: Request): # Kept descriptive name
@@ -772,7 +1057,10 @@ def get_material_details(request: Request): # Kept descriptive name
                 Tr(Th("Density (g/cc)"), Td(f"{material.rho0:.4f}")),
                 Tr(Th("C0 (km/s)"), Td(f"{material.C0:.4f}")),
                 Tr(Th("S (dim-less)"), Td(f"{material.S:.4f}")),
-            )
+            ),
+            # Add a unique data attribute to force refresh
+            data_material=material.name,
+            data_timestamp=str(int(__import__('time').time() * 1000))
         )
     except NotFoundError:
         return P(f"Material '{name_to_fetch}' not found.", style="color:red;")
@@ -803,12 +1091,16 @@ async def post_admin_add_material(request: Request): # Kept descriptive name
         return login_redir
     
     form_data = await request.form()
-    name = form_data.get("name", "").strip()
+    name = str(form_data.get("name", "")).strip() if form_data.get("name") else ""
     
     try:
-        rho0 = float(form_data.get("rho0", "0"))
-        C0 = float(form_data.get("C0", "0"))
-        S = float(form_data.get("S", "0"))
+        rho0_val = form_data.get("rho0", "0")
+        C0_val = form_data.get("C0", "0") 
+        S_val = form_data.get("S", "0")
+        
+        rho0 = float(str(rho0_val))
+        C0 = float(str(C0_val))
+        S = float(str(S_val))
     except (ValueError, TypeError):
         return Titled("Error Adding Material", P("Invalid numeric values provided for material properties."))
     
@@ -831,5 +1123,9 @@ async def post_admin_add_material(request: Request): # Kept descriptive name
 # and that the /calculate route always returns a valid FastHTML Div/Table/NotStr, not a string or list.
 # This is already the case after the previous fixes.
 # If the problem persists, it may be due to browser caching or a stale frontend. Try a hard refresh (Ctrl+Shift+R).
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
 
 
