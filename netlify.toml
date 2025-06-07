@@ -1,4 +1,5 @@
-[build.environment]
-  MISE_SETTINGS_PYTHON_COMPILE = "false"
 [build]
-  image = "ubuntu-20.04"
+  NETLIFY_BUILD_DEBUG = true
+[build.environment]
+  NETLIFY_USE_LEGACY_IMAGE = "true"
+
