@@ -1,2 +1,2 @@
 [build]
-  image = "ubuntu-20.04"
+  NETLIFY_BUILD_DEBUG = true
