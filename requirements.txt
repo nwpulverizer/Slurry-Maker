@@ -2,6 +2,5 @@ numpy
 plotly
 python-fasthtml
 scipy
-ipywidgets
 matplotlib
 passlib[bcrypt]
