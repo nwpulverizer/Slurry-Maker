@@ -1,2 +1,5 @@
 [build]
   NETLIFY_BUILD_DEBUG = true
+[build.environment]
+  NETLIFY_USE_LEGACY_IMAGE = "true"
+
