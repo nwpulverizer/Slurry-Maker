@@ -17,7 +17,7 @@ import sys # Import sys for stdout.flush()
 import traceback # Import traceback for error handling
 import logging # Import logging for better error handling
 import numpy as np
-from .components import (
+from components import (
     HugoniotEOS,
     MixedHugoniotEOS,
     generate_mixed_hugoniot_many, 
