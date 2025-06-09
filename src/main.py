@@ -966,6 +966,7 @@ def get_admin_add_material(request: Request): # Kept descriptive name
             Input(name="rho0", placeholder="Density (g/cc)", type="number", step="any"),
             Input(name="C0", placeholder="C0 (km/s)", type="number", step="any"),
             Input(name="S", placeholder="S (dimensionless)", type="number", step="any"),
+            A("Return to Mixer", href="/", role="button", cls="secondary"),
             Button("Add Material"),
             method="post",
             action="/admin/add_material" 
