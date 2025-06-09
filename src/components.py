@@ -57,8 +57,25 @@ def generate_mixed_hugoniot(
         mass_mat1 / material1.rho0 + mass_mat2 / material2.rho0
     )
     mixed_Up = np.sqrt(material1Up**2 * x_mat1 + material2Up**2 * (1 - x_mat1))
-    mixed_Us = P[1:] / (rho_mix * mixed_Up[1:])
-    regression = np.polyfit(mixed_Up[1:], mixed_Us, 1)
+    
+    # Handle case where we have only one or few points
+    if len(Up) <= 2:
+        # For single point or very few points, use a simple approximation
+        if len(Up) == 1 and Up[0] != 0:
+            # Single non-zero point
+            mixed_Us_single = P[0] / (rho_mix * mixed_Up[0])
+            # Estimate C0 from the single point, assume S=1.5 as reasonable default
+            C0_est = mixed_Us_single - 1.5 * mixed_Up[0]
+            if C0_est <= 0:
+                C0_est = mixed_Us_single / 2  # Fallback
+            regression = [1.5, C0_est]  # [S, C0]
+        else:
+            # Fallback values
+            regression = [1.5, 3.0]  # Default S and C0
+    else:
+        # Normal case with multiple points
+        mixed_Us = P[1:] / (rho_mix * mixed_Up[1:])
+        regression = np.polyfit(mixed_Up[1:], mixed_Us, 1)
     names = [material1.name, material2.name]
     vols = [Vx_mat1, 1 - Vx_mat1]
     mfracs = [x_mat1, 1 - x_mat1]
@@ -218,31 +235,25 @@ def generate_mixed_hugoniot_many(name: str, material_data_list: List[Tuple[Hugon
     
     C0_mix, S_mix = mat1_eos.C0, 0.0 # Default fallback
 
-    # Ensure there are enough points for regression after potentially removing the first point (Up=0)
-    # And ensure mixed_Up is not all zeros or very small values that would cause issues in division
-    if len(mixed_Up) > 1 and len(P_common) > 1:
-        # Use indices from the second point onwards if Up_ref[0] is 0 (common case)
-        # Filter out points where mixed_Up is zero or very small to avoid division by zero or large errors
-        valid_fit_indices = mixed_Up[1:] > 1e-9 # Check for non-zero and non-tiny Up values
+    # With minimum 20 points enforced at validation, we can safely perform linear regression
+    # Use indices from the second point onwards if Up_ref[0] is 0 (common case)
+    # Filter out points where mixed_Up is zero or very small to avoid division by zero
+    valid_fit_indices = mixed_Up[1:] > 1e-9 # Check for non-zero and non-tiny Up values
+    
+    if np.count_nonzero(valid_fit_indices) >= 2: # Need at least 2 points for linear regression
+        up_for_fit = mixed_Up[1:][valid_fit_indices]
+        # P_common[0] is typically 0 if Up_ref[0] is 0.
+        # We need to align P_common with the filtered up_for_fit.
+        p_for_fit = P_common[1:][valid_fit_indices]
         
-        if np.count_nonzero(valid_fit_indices) >= 2: # Need at least 2 points for linear regression
-            up_for_fit = mixed_Up[1:][valid_fit_indices]
-            # P_common[0] is typically 0 if Up_ref[0] is 0.
-            # We need to align P_common with the filtered up_for_fit.
-            p_for_fit = P_common[1:][valid_fit_indices]
-            
-            mixed_Us_calc = p_for_fit / (rho_mix * up_for_fit)
-            
-            if len(up_for_fit) >=2: # Check again after slicing for p_for_fit alignment
-                regression = LR(up_for_fit, mixed_Us_calc)
-                C0_mix = regression.intercept
-                S_mix = regression.slope
-            else:
-                print("Warning: Not enough valid data points after aligning P and Up for Us-Up linear regression. Using C0 of first component and S=0 for mixture.")
-        else:
-            print("Warning: Not enough valid data points (Up_mix > 0, after excluding first point) for Us-Up linear regression. Using C0 of first component and S=0 for mixture.")
+        mixed_Us_calc = p_for_fit / (rho_mix * up_for_fit)
+        
+        regression = LR(up_for_fit, mixed_Us_calc)
+        C0_mix = regression.intercept
+        S_mix = regression.slope
     else:
-        print("Warning: Not enough data points in Up_ref for Us-Up linear regression. Using C0 of first component and S=0 for mixture.")
+        # This should rarely happen with 20+ points, but keep as fallback
+        print("Warning: Not enough valid data points for Us-Up linear regression. Using C0 of first component and S=0 for mixture.")
 
     mixed_eos_obj = MixedHugoniotEOS(name, rho_mix, C0_mix, S_mix, component_names, component_vfrac_list)
     mixed_eos_obj.mfracs = component_mass_frac_list

@@ -3,17 +3,9 @@
 from fasthtml.common import (
     FastHTML, Titled, Div, Form, Input, Button, RedirectResponse, database,
     NotFoundError, Grid, H1, A, Label, Group, Select, Option, Article, Hr, H2, H4, Table, Tr, Th, Td, NotStr, Style, Script, picolink,
-    Beforeware, # Added Beforeware
-    P, # Added P
-    H3, # Added H3
+    P, H3,
 )
-from fasthtml.core import HtmxResponseHeaders
-from hmac import compare_digest
-from dataclasses import dataclass, fields, field
-from passlib.context import CryptContext
-import passlib.exc # Ensure this is imported for specific exception types
-import os # Import os for SECRET_KEY
-import sys # Import sys for stdout.flush()
+import os # Import os for directory creation
 import traceback # Import traceback for error handling
 import logging # Import logging for better error handling
 import numpy as np
@@ -25,9 +17,6 @@ from components import (
 )
 from starlette.requests import Request
 from starlette.datastructures import FormData
-from starlette.middleware import Middleware
-from starlette.middleware.sessions import SessionMiddleware
-from starlette.responses import Response # Import Response
 from typing import Optional
 
 # --- Shared style variables for layout and headings ---
@@ -48,15 +37,12 @@ os.makedirs("data", exist_ok=True)
 
 # Database setup
 db = database("data/calcapp.db")
-users, materials = db.t.users, db.t.materials
+materials = db.t.materials
 
-if users not in db.t:
-    # 'pwd' field will store the hash, or initially plain text during migration
-    users.create(dict(name=str, pwd=str), pk="name")
 if materials not in db.t:
     materials.create(dict(name=str, rho0=float, C0=float, S=float), pk="name")
 
-User, Material = users.dataclass(), materials.dataclass()
+Material = materials.dataclass()
 
 # Seed database with default materials if empty
 def seed_default_materials():
@@ -144,7 +130,6 @@ def update_materials_for_testing():
 # Initialize default materials
 seed_default_materials()
 
-# Input validation helpers
 def validate_positive_number(value: str, field_name: str) -> tuple[bool, float, str]:
     """Validate that a string represents a positive number.
     
@@ -155,6 +140,20 @@ def validate_positive_number(value: str, field_name: str) -> tuple[bool, float, 
         num = float(value)
         if num <= 0:
             return False, 0.0, f"{field_name} must be positive"
+        return True, num, ""
+    except (ValueError, TypeError):
+        return False, 0.0, f"{field_name} must be a valid number"
+
+def validate_non_negative_number(value: str, field_name: str) -> tuple[bool, float, str]:
+    """Validate that a string represents a non-negative number (>= 0).
+    
+    Returns:
+        tuple: (is_valid: bool, parsed_value: float, error_message: str)
+    """
+    try:
+        num = float(value)
+        if num < 0:
+            return False, 0.0, f"{field_name} must be non-negative"
         return True, num, ""
     except (ValueError, TypeError):
         return False, 0.0, f"{field_name} must be a valid number"
@@ -180,7 +179,8 @@ def validate_integer_range(value: str, field_name: str, min_val: Optional[int] =
         tuple: (is_valid: bool, parsed_value: int, error_message: str)
     """
     try:
-        num = int(value)
+        # First convert to float to handle strings like "5.0", then to int
+        num = int(float(value))
         if min_val is not None and num < min_val:
             return False, 0, f"{field_name} must be at least {min_val}"
         if max_val is not None and num > max_val:
@@ -189,28 +189,9 @@ def validate_integer_range(value: str, field_name: str, min_val: Optional[int] =
     except (ValueError, TypeError):
         return False, 0, f"{field_name} must be a valid integer"
 
-# Password hashing setup
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-login_redir = RedirectResponse("/login", status_code=303)
-
 
 def _not_found(req, exc):
     return Titled("Oh no!", Div("We could not find that page :("))
-
-
-def before(req, sess):
-    logger.debug("Before middleware running.")
-    logger.debug(f"Session content in before: {dict(sess)}")
-    logger.debug(f"Request cookies in before: {req.cookies if hasattr(req, 'cookies') else 'No cookies attr'}")
-    auth = req.scope["auth"] = sess.get("auth", None)
-    if not auth:
-        logger.debug("Auth not found in session, redirecting to login.")
-        return login_redir
-    logger.debug(f"Auth found in session: {auth}")
-
-
-bware = Beforeware(before, skip=["/favicon\\.ico", "/static/.*", ".*\\.css", "/login"])
 
 def _create_material_form_section(section_idx: int, material_options: list, default_custom_values: dict) -> tuple:
     """Helper function to create the form section for a single material."""
@@ -348,109 +329,21 @@ document.addEventListener('DOMContentLoaded', function() {
 
 # Generate a simple secret key for the session middleware
 # In a production app, this should be a strong, randomly generated key stored securely
-SECRET_KEY = os.environ.get("SESSION_SECRET_KEY", "a-super-secret-key-that-should-be-changed")
+# SECRET_KEY = os.environ.get("SESSION_SECRET_KEY", "a-super-secret-key-that-should-be-changed")
 
-middleware = [
-    Middleware(SessionMiddleware, secret_key=SECRET_KEY)
-]
+# middleware = [
+#     Middleware(SessionMiddleware, secret_key=SECRET_KEY)
+# ]
 
 app = FastHTML(
-    before=bware,
     exception_handlers={404: _not_found},
     hdrs=(picolink, Style(":root { --pico-font-size: 100%; }"), Script(script_dynamic_materials)),
-    middleware=middleware
 )
 rt = app.route # rt is obtained here
-
-@dataclass
-class Login:
-    name: Optional[str] = None
-    pwd: Optional[str] = None
-
-@rt("/login")
-async def login(request: Request, sess):
-    if request.method == "GET":
-        frm = Form(
-            Input(id="name", name="name", placeholder="Name"),
-            Input(id="pwd", name="pwd", type="password", placeholder="Password"),
-            Button("login"),
-            action="/login",
-            method="post",
-        )
-        return Titled("Login", frm, H3("First time login will create your account. Do not reuse passwords from other websites on this website."))
-    else:
-        form = await request.form() if hasattr(request, 'form') and callable(request.form) else request.form
-        name = str(form.get("name", "")).strip() if form.get("name") else ""
-        pwd = str(form.get("pwd", "")).strip() if form.get("pwd") else ""
-        logger.info(f"Login attempt for user: {name}")
-        if not name or not pwd:
-            logger.warning("Login failed: Missing name or password.")
-            return login_redir
-        try:
-            user_record = users[name]
-            stored_pwd = user_record.pwd
-            print(f"User {name} found in DB.")
-            is_identified_hash = False
-            if isinstance(stored_pwd, str) and stored_pwd:
-                try:
-                    pwd_context.identify(stored_pwd)
-                    is_identified_hash = True
-                    print("Stored password identified as hash.")
-                except passlib.exc.UnknownHashError:
-                    is_identified_hash = False
-                    print("Stored password not a recognized hash.")
-                except (ValueError, TypeError):
-                    is_identified_hash = False
-                    print("Error identifying stored password hash type.")
-            else:
-                is_identified_hash = False
-                print("Stored password is not a string or is empty.")
-            if (is_identified_hash and pwd_context.verify(pwd, stored_pwd)) or \
-               (not is_identified_hash and compare_digest((stored_pwd if isinstance(stored_pwd, str) else "").encode("utf-8"), pwd.encode("utf-8"))):
-                print("Password verification successful.")
-                sess["auth"] = user_record.name
-                print(f"Session auth set for {user_record.name}. Redirecting to /.")
-                print(f"Session after setting auth: {dict(sess)}")
-                sys.stdout.flush()
-                if "HX-Request" in request.headers:
-                    print("HTMX request detected. Returning HX-Location header.")
-                    return HtmxResponseHeaders(location="/")
-                else:
-                    print("Non-HTMX request. Returning RedirectResponse.")
-                    return RedirectResponse("/", status_code=303)
-            else:
-                print("Password verification failed.")
-                print(f"Returning: {login_redir}")
-                return login_redir
-        except NotFoundError:
-            print(f"User {name} not found. Creating new user.")
-            pwd_hash = pwd_context.hash(pwd)
-            users.insert({"name": name, "pwd": pwd_hash})
-            sess["auth"] = name
-            print(f"New user {name} created and session auth set. Redirecting to /.")
-            print(f"Session after setting auth: {dict(sess)}")
-            sys.stdout.flush()
-            if "HX-Request" in request.headers:
-                print("HTMX request detected. Returning HX-Location header.")
-                return HtmxResponseHeaders(location="/")
-            else:
-                print("Non-HTMX request. Returning RedirectResponse.")
-                return RedirectResponse("/", status_code=303)
-
-@rt("/logout")
-def get_logout(sess): # Kept descriptive name
-    del sess["auth"]
-    return login_redir
 
 @rt("/")
 def get_main_page(request: Request): # Kept descriptive name
     logger.debug("Reached get_main_page route.")
-    auth = request.scope.get("auth")
-    logger.debug(f"Auth value in get_main_page: {auth}")
-    if not auth:
-        logger.debug("Auth not found in scope, redirecting to login.")
-        return login_redir
-    logger.debug(f"Auth found in scope: {auth}")
 
     num_materials_str = request.query_params.get('num_materials', '2')
     try:
@@ -467,13 +360,11 @@ def get_main_page(request: Request): # Kept descriptive name
     print(f"Existing form data: {existing_data}")  # Debug logging
     print(f"All query params: {dict(request.query_params)}")  # Debug logging
 
-    title = f"Calculation App for {auth}"
+    title = "Slurry Maker - Material Mixing Calculator"
     top = Div(
         Grid(
             H1(title, style="margin-bottom:0.2em;"),
             Div(
-                A("logout", href="/logout", cls="contrast"),
-                " | ",
                 A("Add Material", href="/admin/add_material", cls="secondary"),
                 style="text-align: right; margin-bottom: 0.5em;"
             ),
@@ -595,7 +486,7 @@ def get_main_page(request: Request): # Kept descriptive name
             Group(Label("Mixture Name (Optional)", for_="mixture_name"), Input(id="mixture_name", name="mixture_name", placeholder="e.g., MySlurryMix", type="text", value=mixture_name, style="width: 60%; min-width: 180px;")),
             Group(Label("Minimum Up for EOS fit (km/s)", for_="upmin_fit"), Input(id="upmin_fit", name="upmin_fit", type="number", value=upmin_fit, step="any", style="width: 8em;")),
             Group(Label("Maximum Up for EOS fit (km/s)", for_="upmax_fit"), Input(id="upmax_fit", name="upmax_fit", type="number", value=upmax_fit, step="any", style="width: 8em;")),
-            Group(Label("Number of points for Up array (EOS fit)", for_="num_points_fit"), Input(id="num_points_fit", name="num_points_fit", type="number", value=num_points_fit, step="1", min="10", style="width: 8em;")),
+            Group(Label("Number of points for Up array (EOS fit)", for_="num_points_fit"), Input(id="num_points_fit", name="num_points_fit", type="number", value=num_points_fit, step="1", min="20", style="width: 8em;")),
             Button("Calculate Mixture", type="submit", cls="contrast", style="margin-top: 1em; width: 100%; font-size: 1.1em;"),
             # Plot button removed from initial load - will be added after successful calculation
             method="post", hx_post="/calculate", hx_target="#main-form-content", hx_swap="outerHTML",
@@ -852,7 +743,7 @@ def rebuild_form_with_error(form_data: FormData, error_message: str):
             Group(Label("Mixture Name (Optional)", for_="mixture_name"), Input(id="mixture_name", name="mixture_name", placeholder="e.g., MySlurryMix", type="text", value=mixture_name, style="width: 60%; min-width: 180px;")),
             Group(Label("Minimum Up for EOS fit (km/s)", for_="upmin_fit"), Input(id="upmin_fit", name="upmin_fit", type="number", value=upmin_fit, step="any", style="width: 8em;")),
             Group(Label("Maximum Up for EOS fit (km/s)", for_="upmax_fit"), Input(id="upmax_fit", name="upmax_fit", type="number", value=upmax_fit, step="any", style="width: 8em;")),
-            Group(Label("Number of points for Up array (EOS fit)", for_="num_points_fit"), Input(id="num_points_fit", name="num_points_fit", type="number", value=num_points_fit, step="1", min="10", style="width: 8em;")),
+            Group(Label("Number of points for Up array (EOS fit)", for_="num_points_fit"), Input(id="num_points_fit", name="num_points_fit", type="number", value=num_points_fit, step="1", min="20", style="width: 8em;")),
             Button("Calculate Mixture", type="submit", cls="contrast", style="margin-top: 1em; width: 100%; font-size: 1.1em;"),
             method="post", hx_post="/calculate", hx_target="#main-form-content", hx_swap="outerHTML",
             style="margin-bottom: 1.5em;"
@@ -912,8 +803,8 @@ async def post_calculate(request: Request):
 
         if upmin_fit >= upmax_fit: 
             return rebuild_form_with_error(form_data, "Up_min for fit must be less than Up_max for fit.")
-        if num_points_fit < 10: 
-            return rebuild_form_with_error(form_data, "Number of points for Up array (fit) must be at least 10.")
+        if num_points_fit < 20: 
+            return rebuild_form_with_error(form_data, "Number of points for Up array (fit) must be at least 20.")
 
         up_ref_array = np.linspace(upmin_fit, upmax_fit, num_points_fit)
 
@@ -964,7 +855,7 @@ async def post_calculate(request: Request):
                 Group(Label("Mixture Name (Optional)", for_="mixture_name"), Input(id="mixture_name", name="mixture_name", placeholder="e.g., MySlurryMix", type="text", value=mixture_name, style="width: 60%; min-width: 180px;")),
                 Group(Label("Minimum Up for EOS fit (km/s)", for_="upmin_fit"), Input(id="upmin_fit", name="upmin_fit", type="number", value=upmin_fit, step="any", style="width: 8em;")),
                 Group(Label("Maximum Up for EOS fit (km/s)", for_="upmax_fit"), Input(id="upmax_fit", name="upmax_fit", type="number", value=upmax_fit, step="any", style="width: 8em;")),
-                Group(Label("Number of points for Up array (EOS fit)", for_="num_points_fit"), Input(id="num_points_fit", name="num_points_fit", type="number", value=num_points_fit, step="1", min="10", style="width: 8em;")),
+                Group(Label("Number of points for Up array (EOS fit)", for_="num_points_fit"), Input(id="num_points_fit", name="num_points_fit", type="number", value=num_points_fit, step="1", min="20", style="width: 8em;")),
                 Button("Calculate Mixture", type="submit", cls="contrast", style="margin-top: 1em; width: 100%; font-size: 1.1em;"),
                 Button("Plot", id="plot-btn", type="submit", name="plot", hx_post="/plot", hx_target="#plot-container", hx_swap="innerHTML", hx_include="closest form", hx_trigger="click", cls="secondary", style="margin-top:1em; width:100%; font-size:1.1em;"),
                 method="post", hx_post="/calculate", hx_target="#main-form-content", hx_swap="outerHTML",
@@ -1010,8 +901,8 @@ async def post_plot(request: Request):
 
         if upmin_fit >= upmax_fit: 
             return P("Error: Up_min for fit must be less than Up_max for fit.", style="color:red;")
-        if num_points_fit < 10: 
-            return P("Error: Number of points for Up array (fit) must be at least 10.", style="color:red;")
+        if num_points_fit < 20: 
+            return P("Error: Number of points for Up array (fit) must be at least 20.", style="color:red;")
 
         up_ref_array = np.linspace(upmin_fit, upmax_fit, num_points_fit)
 
@@ -1068,11 +959,8 @@ def get_material_details(request: Request): # Kept descriptive name
 # Admin route to add materials - placeholder for now
 @rt("/admin/add_material")
 def get_admin_add_material(request: Request): # Kept descriptive name
-    auth = request.scope.get("auth")
-    if not auth:
-        return login_redir
     # Check if user is admin if implementing roles, for now just auth
-    return Titled(f"Add Material - Admin ({auth})",
+    return Titled("Add Material - Admin",
         Form(
             Input(name="name", placeholder="Material Name"),
             Input(name="rho0", placeholder="Density (g/cc)", type="number", step="any"),
@@ -1086,9 +974,6 @@ def get_admin_add_material(request: Request): # Kept descriptive name
 
 @rt("/admin/add_material")
 async def post_admin_add_material(request: Request): # Kept descriptive name
-    auth = request.scope.get("auth")
-    if not auth:
-        return login_redir
     
     form_data = await request.form()
     name = str(form_data.get("name", "")).strip() if form_data.get("name") else ""
