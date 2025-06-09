@@ -1,0 +1,62 @@
+{
+  "sample_forms": {
+    "valid_two_material": {
+      "num_materials": "2",
+      "material_type_1": "premade",
+      "material1_select": "Copper",
+      "vfrac1": "0.6",
+      "material_type_2": "custom",
+      "name2": "Custom Al",
+      "rho0_2": "2.70",
+      "C0_2": "5.33", 
+      "S_2": "1.34",
+      "vfrac2": "0.4",
+      "mixture_name": "CuAl Mix",
+      "upmin_fit": "0.0",
+      "upmax_fit": "6.0",
+      "num_points_fit": "100"
+    },
+    "valid_three_material": {
+      "num_materials": "3",
+      "material_type_1": "premade",
+      "material1_select": "Silver",
+      "vfrac1": "0.4",
+      "material_type_2": "premade",
+      "material2_select": "Copper", 
+      "vfrac2": "0.4",
+      "material_type_3": "custom",
+      "name3": "Custom Steel",
+      "rho0_3": "7.85",
+      "C0_3": "4.6",
+      "S_3": "1.49",
+      "vfrac3": "0.2",
+      "mixture_name": "Triple Mix",
+      "upmin_fit": "0.5",
+      "upmax_fit": "8.0",
+      "num_points_fit": "200"
+    }
+  },
+  "invalid_forms": {
+    "volume_fractions_dont_sum": {
+      "num_materials": "2",
+      "vfrac1": "0.6",
+      "vfrac2": "0.5"
+    },
+    "negative_properties": {
+      "material_type_1": "custom",
+      "rho0_1": "-2.5",
+      "C0_1": "3.0",
+      "S_1": "1.5"
+    },
+    "missing_material_selection": {
+      "material_type_1": "premade",
+      "material1_select": "",
+      "vfrac1": "1.0"
+    },
+    "invalid_calculation_params": {
+      "upmin_fit": "-1.0",
+      "upmax_fit": "2.0",
+      "num_points_fit": "5"
+    }
+  }
+}

@@ -1,0 +1,113 @@
+{
+  "test_materials": [
+    {
+      "name": "Test Copper",
+      "rho0": 8.93,
+      "C0": 4.27,
+      "S": 1.413
+    },
+    {
+      "name": "Test Aluminum", 
+      "rho0": 2.785,
+      "C0": 5.328,
+      "S": 1.338
+    },
+    {
+      "name": "Test Steel",
+      "rho0": 7.85,
+      "C0": 4.6,
+      "S": 1.49
+    }
+  ],
+  "sample_form_data": {
+    "two_materials": {
+      "num_materials": "2",
+      "material_type_1": "premade",
+      "material1_select": "Test Copper",
+      "vfrac1": "0.6",
+      "material_type_2": "custom",
+      "name2": "Custom Material",
+      "rho0_2": "3.0",
+      "C0_2": "4.0",
+      "S_2": "1.5",
+      "vfrac2": "0.4",
+      "mixture_name": "Test Mixture",
+      "upmin_fit": "0.0",
+      "upmax_fit": "6.0",
+      "num_points_fit": "100"
+    },
+    "three_materials": {
+      "num_materials": "3",
+      "material_type_1": "premade",
+      "material1_select": "Test Copper",
+      "vfrac1": "0.5",
+      "material_type_2": "premade", 
+      "material2_select": "Test Aluminum",
+      "vfrac2": "0.3",
+      "material_type_3": "custom",
+      "name3": "Custom Material",
+      "rho0_3": "2.0",
+      "C0_3": "3.0",
+      "S_3": "1.6",
+      "vfrac3": "0.2",
+      "mixture_name": "Three Material Mix",
+      "upmin_fit": "0.0",
+      "upmax_fit": "8.0",
+      "num_points_fit": "150"
+    }
+  },
+  "invalid_form_data": {
+    "negative_density": {
+      "material_type_1": "custom",
+      "name1": "Invalid Material",
+      "rho0_1": "-2.5",
+      "C0_1": "3.0",
+      "S_1": "1.5",
+      "vfrac1": "1.0"
+    },
+    "invalid_volume_fractions": {
+      "num_materials": "2",
+      "material_type_1": "custom",
+      "name1": "Material 1",
+      "rho0_1": "2.5",
+      "C0_1": "3.0", 
+      "S_1": "1.5",
+      "vfrac1": "0.6",
+      "material_type_2": "custom",
+      "name2": "Material 2",
+      "rho0_2": "3.0",
+      "C0_2": "4.0",
+      "S_2": "1.4",
+      "vfrac2": "0.5"
+    },
+    "out_of_range_fractions": {
+      "num_materials": "2",
+      "vfrac1": "1.5",
+      "vfrac2": "-0.5"
+    }
+  },
+  "edge_cases": {
+    "minimum_values": {
+      "material_type_1": "custom",
+      "name1": "Minimum Material",
+      "rho0_1": "0.001",
+      "C0_1": "0.001", 
+      "S_1": "0.001",
+      "vfrac1": "1.0",
+      "upmin_fit": "0.0",
+      "upmax_fit": "0.1",
+      "num_points_fit": "20"
+    },
+    "maximum_materials": {
+      "num_materials": "10"
+    },
+    "scientific_notation": {
+      "material_type_1": "custom",
+      "name1": "Scientific Material",
+      "rho0_1": "1.5e1",
+      "C0_1": "4.2e0",
+      "S_1": "1.4e0",
+      "vfrac1": "1.0"
+    }
+  }
+}
