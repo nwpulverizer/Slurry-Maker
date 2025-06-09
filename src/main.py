@@ -3,12 +3,16 @@
 from fasthtml.common import (
     FastHTML, Titled, Div, Form, Input, Button, RedirectResponse, database,
     NotFoundError, Grid, H1, A, Label, Group, Select, Option, Article, Hr, H2, H4, Table, Tr, Th, Td, NotStr, Style, Script, picolink,
-    P, H3,
+    P, H3, Img, # Added Img here
 )
-import os # Import os for directory creation
-import traceback # Import traceback for error handling
-import logging # Import logging for better error handling
+import os
+import uuid # For unique filenames
+from datetime import datetime, timezone # For timestamping
+import traceback
+import logging
 import numpy as np
+from starlette.datastructures import UploadFile # For file uploads
+from starlette.staticfiles import StaticFiles # For serving static files
 from components import (
     HugoniotEOS,
     MixedHugoniotEOS,
@@ -32,17 +36,35 @@ subheading_style = "margin: 1.5em 0 0.5em 0; font-size: 1.1em;"
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+UPLOAD_DIR = "data/guild_uploads"
+
 # Ensure data directory exists
 os.makedirs("data", exist_ok=True)
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # Database setup
 db = database("data/calcapp.db")
 materials = db.t.materials
+guild_images = db.t.guild_images
 
 if materials not in db.t:
     materials.create(dict(name=str, rho0=float, C0=float, S=float), pk="name")
 
+if guild_images not in db.t:
+    guild_images.create(
+        dict(
+            guild_id=str,
+            image_path=str,
+            original_file_name=str,
+            uploaded_at=str
+            # id is implicit if pk is not set
+        )
+    )
+    # Add an index for guild_id for faster lookups
+    guild_images.create_index('guild_id')
+
 Material = materials.dataclass()
+GuildImage = guild_images.dataclass()
 
 # Seed database with default materials if empty
 def seed_default_materials():
@@ -339,6 +361,7 @@ app = FastHTML(
     exception_handlers={404: _not_found},
     hdrs=(picolink, Style(":root { --pico-font-size: 100%; }"), Script(script_dynamic_materials)),
 )
+app.mount("/guild_uploads_static", StaticFiles(directory=UPLOAD_DIR), name="guild_uploads_static")
 rt = app.route # rt is obtained here
 
 @rt("/")
@@ -365,7 +388,8 @@ def get_main_page(request: Request): # Kept descriptive name
         Grid(
             H1(title, style="margin-bottom:0.2em;"),
             Div(
-                A("Add Material", href="/admin/add_material", cls="secondary"),
+                A("Add Material", href="/admin/add_material", cls="secondary", style="margin-right: 0.5em;"),
+                A("Guild Image Admin", href="/admin/guild_image_admin", cls="secondary"),
                 style="text-align: right; margin-bottom: 0.5em;"
             ),
         ),
@@ -1001,6 +1025,129 @@ async def post_admin_add_material(request: Request): # Kept descriptive name
         return RedirectResponse("/", status_code=303) # Redirect to main page
     except Exception as e:
         return Titled("Error Adding Material", P(f"Could not add material: {e}"))
+
+@rt("/admin/upload_guild_image")
+def get_upload_guild_image_form(request: Request):
+    return Titled("Upload Guild Image - Admin",
+        Form(
+            Group(Label("Guild ID:", for_="guild_id_input"), Input(id="guild_id_input", name="guild_id", placeholder="Enter Guild ID")),
+            Group(Label("Image:", for_="image_upload_input"), Input(id="image_upload_input", name="image_file", type="file")),
+            Button("Upload Image"),
+            method="post",
+            action="/admin/upload_guild_image",
+            enctype="multipart/form-data" # Crucial for file uploads
+        ),
+        # Add a link back to the main page for convenience
+        P(A("Back to Main Page", href="/", role="button", cls="secondary"), style="margin-top: 1em;")
+    )
+
+@rt("/admin/upload_guild_image")
+async def post_upload_guild_image(request: Request):
+    form_data = await request.form()
+    guild_id = form_data.get("guild_id")
+    image_file: Optional[UploadFile] = form_data.get("image_file") # Type hint
+
+    if not guild_id or not image_file or not image_file.filename:
+        # Basic validation - can be enhanced
+        # Ideally, return the form with an error message
+        return Titled("Upload Error", P("Guild ID and Image file are required."), P(A("Try Again", href="/admin/upload_guild_image")))
+
+    # Generate a unique filename to prevent overwrites and issues with certain characters
+    original_filename = image_file.filename
+    extension = os.path.splitext(original_filename)[1]
+    unique_filename = f"{uuid.uuid4()}{extension}"
+    save_path = os.path.join(UPLOAD_DIR, unique_filename)
+
+    # Relative path for DB storage (just the filename, assuming UPLOAD_DIR is fixed)
+    db_image_path = unique_filename
+
+    try:
+        # Read file content
+        contents = await image_file.read()
+        # Save the file
+        with open(save_path, "wb") as f:
+            f.write(contents)
+
+        # Store metadata in database
+        guild_images.insert(dict(
+            guild_id=str(guild_id),
+            image_path=db_image_path,
+            original_file_name=original_filename,
+            uploaded_at=datetime.now(timezone.utc).isoformat()
+        ))
+
+        # Redirect to a success page or back to the form, or show a success message
+        return Titled("Upload Success",
+            P(f"Image '{original_filename}' uploaded successfully for Guild ID: {guild_id}."),
+            P(f"Stored as: {unique_filename}"),
+            P(A("Upload Another", href="/admin/upload_guild_image", role="button")),
+            P(A("Back to Main Page", href="/", role="button", cls="secondary"))
+        )
+    except Exception as e:
+        logger.error(f"Error uploading image: {e}")
+        # Error handling - return form with error
+        return Titled("Upload Error", P(f"An error occurred: {e}"), P(A("Try Again", href="/admin/upload_guild_image")))
+    finally:
+        if image_file:
+            await image_file.close() # Important to close the file stream
+
+@rt("/admin/view_guild_images/{guild_id}")
+def view_guild_images(request: Request, guild_id: str):
+    # Query the database for images associated with the guild_id
+    images_for_guild = list(guild_images.rows_where("guild_id = ?", [guild_id], order_by="uploaded_at DESC"))
+
+    image_elements = []
+    if images_for_guild:
+        for img_record in images_for_guild:
+            # Construct the image URL. img_record.image_path is just the filename.
+            img_url = f"/guild_uploads_static/{img_record.image_path}"
+            image_elements.append(
+                Div(
+                    H4(f"Original Filename: {img_record.original_file_name}"),
+                    Img(src=img_url, alt=f"Image for guild {guild_id}", style="max-width: 400px; max-height: 400px; margin-bottom: 1em;"),
+                    P(f"Uploaded: {img_record.uploaded_at}"),
+                    Hr()
+                )
+            )
+    else:
+        image_elements.append(P("No images found for this guild."))
+
+    return Titled(f"Images for Guild {guild_id}",
+        Div(*image_elements),
+        P(A("Upload New Image", href="/admin/upload_guild_image", role="button"), style="margin-top: 1em;"),
+        P(A("Back to Main Page", href="/", role="button", cls="secondary"), style="margin-top: 1em;")
+    )
+
+@rt("/admin/guild_image_admin")
+def get_guild_image_admin_page(request: Request):
+    return Titled("Guild Image Administration",
+        Div(
+            H2("Manage Guild Images"),
+            P(A("Upload New Guild Image", href="/admin/upload_guild_image", role="button")),
+            Hr(style="margin: 2em 0;"),
+            H3("View Images for a Guild"),
+            Form(
+                Group(
+                    Label("Enter Guild ID:", for_="view_guild_id_input"),
+                    Input(id="view_guild_id_input", name="guild_id_to_view", placeholder="Guild ID", type="text")
+                ),
+                Button("View Images", type="submit"),
+                method="post",
+                action="/admin/redirect_to_view_guild_images"
+            ),
+            P(A("Back to Main Page", href="/", role="button", cls="secondary"), style="margin-top: 1em;")
+        )
+    )
+
+@rt("/admin/redirect_to_view_guild_images")
+async def post_redirect_to_view_guild_images(request: Request):
+    form_data = await request.form()
+    guild_id_to_view = form_data.get("guild_id_to_view")
+    if guild_id_to_view:
+        return RedirectResponse(f"/admin/view_guild_images/{guild_id_to_view}", status_code=303)
+    else:
+        # Redirect back to the admin page
+        return RedirectResponse("/admin/guild_image_admin", status_code=303)
 
 # --- Ensure plot container is always present and updated on first submit ---
 # The plot_container Div is already outside the form and has id="plot-container".
